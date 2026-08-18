@@ -1,0 +1,40 @@
+# --- Gradle / JVM ---
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+out/
+*.class
+*.jar
+!gradle-wrapper.jar
+*.log
+hs_err_pid*
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+.turbo/
+dist/
+coverage/
+*.tsbuildinfo
+.pnpm-store/
+
+# --- Environnement : aucun secret dans le dépôt (spec §10.6) ---
+.env
+.env.*
+!.env.example
+
+# --- Outils locaux ---
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# --- Données locales (compose : Postgres, MinIO) ---
+docker/.data/
+
+# --- Échantillons de fichiers plateformes ---
+# Relevés Uber et exports Driversnote contiennent de la PII (spec §8.1).
+# Les échantillons ne sont jamais commités : ils circulent hors dépôt.
+samples/
+*.pdf
+!docs/**/*.pdf
