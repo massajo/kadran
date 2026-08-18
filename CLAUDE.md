@@ -122,13 +122,22 @@ gh issue create --title "[KDN-42] ..." --body-file ...
 ### Commits
 
 ```
-<type>(<scope>): <description à l'impératif, minuscule, sans point final>
+<type>(<scope>): [KDN-<n>] <description à l'impératif, minuscule, sans point final>
 
 [corps expliquant le pourquoi, pas le quoi]
 
 Refs: KDN-<n>
 Closes #<n>
 ```
+
+```
+feat(ingestion): [KDN-35] mapper l'export bolt revenus par chauffeur
+```
+
+**Le numéro ouvre la description, pas la ligne.** `[KDN-<n>]` se place **après** le
+`<type>(<scope>):`, jamais avant : le préfixe Conventional Commits doit rester en tête pour que
+commitlint (KDN-8) analyse le message. Le numéro devient ainsi le premier élément lisible de la
+description, ce qui rend un `git log --oneline` navigable sans ouvrir un seul commit.
 
 Types : `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `build`, `ci`.
 Scopes : `activity`, `ingestion`, `costmodel`, `fiscal`, `performance`, `identity`, `privacy`, `audit`, `platform`, `web`, `db`, `ci`.
@@ -140,8 +149,8 @@ par quoi relève de l'auteur du commit, pas de son message.
 
 ### Liquibase
 
-Fichier : `backend/app/src/main/resources/db/changelog/changes/yyyyMMdd-KDN-<n>-<description-kebab>.sql`
-Changeset : `--changeset kadran:yyyyMMdd-KDN-<n>-<seq> labels:<contexte> context:all`
+Fichier : `backend/app/src/main/resources/db/changelog/changes/yyyyMMdd_KDN-<n>_<description-kebab>.sql`
+Changeset : `--changeset kadran:yyyyMMdd_KDN-<n>_<seq> labels:<contexte> context:all`
 
 Chaque changeset porte un `--rollback` fonctionnel — la CI le vérifie en exécutant réellement le rollback. Une migration fusionnée n'est jamais modifiée : on en ajoute une nouvelle.
 

@@ -1073,7 +1073,7 @@ Règles : un `--rollback` sur **tout** changeset ; un changeset = une intention 
 **Conventional Commits**, scope = contexte borné.
 
 ```
-<type>(<scope>): <description à l'impératif, minuscule, sans point final>
+<type>(<scope>): [KDN-<issue>] <description à l'impératif, minuscule, sans point final>
 
 [corps]
 
@@ -1085,7 +1085,7 @@ Types : `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `build`, `ci
 Scopes : `activity`, `ingestion`, `costmodel`, `fiscal`, `performance`, `identity`, `privacy`, `audit`, `platform`, `web`, `db`.
 
 ```
-feat(ingestion): mapper l'export Bolt revenus par chauffeur
+feat(ingestion): [KDN-35] mapper l'export bolt revenus par chauffeur
 
 Profil de mapping des 39 colonnes, gestion du BOM UTF-8 et de l'espace
 terminal de l'en-tête "Chauffeur ". Contrôle d'intégrité bruts - frais = nets.
@@ -1094,6 +1094,8 @@ Champs sans équivalent Uber stockés dans platform_extras.
 Refs: KDN-35
 Closes #35
 ```
+
+**Le numéro ouvre la description, pas la ligne.** `[KDN-<issue>]` se place **après** le `<type>(<scope>):`, jamais avant : le préfixe Conventional Commits doit rester en tête pour que commitlint (§10.6) analyse le message. Le numéro devient le premier élément lisible de la description, ce qui rend un `git log --oneline` navigable sans ouvrir un seul commit.
 
 **Double référence assumée.** `KDN-35` est la référence stable et lisible hors contexte (fichiers Liquibase, branches, revues) ; `#35` reste nécessaire pour que GitHub ferme automatiquement l'issue. Les deux ne sont pas redondantes, elles s'adressent à des lecteurs différents.
 
