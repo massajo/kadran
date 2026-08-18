@@ -1,4 +1,4 @@
-package eu.kadran.architecture
+package io.korallis.kadran.architecture
 
 import com.tngtech.archunit.core.domain.JavaClasses
 import com.tngtech.archunit.junit.AnalyzeClasses
@@ -12,7 +12,7 @@ import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
  * ni Jackson, ni annotation de persistance. Un domaine pur se teste sans mock ; si un test du
  * domaine en réclame un, c'est le modèle qu'il faut corriger, pas le test.
  */
-@AnalyzeClasses(packages = ["eu.kadran"])
+@AnalyzeClasses(packages = ["io.korallis.kadran"])
 class DomainPurityTest {
     @ArchTest
     fun `le domaine ignore Spring`(classes: JavaClasses) {
@@ -57,7 +57,7 @@ class DomainPurityTest {
     fun `shared-kernel ignore Spring`(classes: JavaClasses) {
         noClasses()
             .that()
-            .resideInAPackage("eu.kadran.kernel..")
+            .resideInAPackage("io.korallis.kadran.core..")
             .should()
             .dependOnClassesThat()
             .resideInAnyPackage("org.springframework..")

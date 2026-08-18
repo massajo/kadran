@@ -9,7 +9,7 @@ plugins {
 
 val libs = the<org.gradle.accessors.dm.LibrariesForLibs>()
 
-group = "eu.kadran"
+group = "io.korallis.kadran"
 version = "0.1.0-SNAPSHOT"
 
 kotlin {
