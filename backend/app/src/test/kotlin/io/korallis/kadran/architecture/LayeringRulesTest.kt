@@ -1,4 +1,4 @@
-package eu.kadran.architecture
+package io.korallis.kadran.architecture
 
 import com.tngtech.archunit.core.domain.JavaClasses
 import com.tngtech.archunit.junit.AnalyzeClasses
@@ -12,7 +12,7 @@ import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
  * s'applique symétriquement aux ports (`domain/`) et aux adaptateurs (`infrastructure/`) ;
  * ces règles sont ce qui l'empêche de se déliter au fil des PR.
  */
-@AnalyzeClasses(packages = ["eu.kadran"])
+@AnalyzeClasses(packages = ["io.korallis.kadran"])
 class LayeringRulesTest {
     @ArchTest
     fun `le domaine ne depend pas de l'infrastructure`(classes: JavaClasses) {
@@ -66,10 +66,10 @@ class LayeringRulesTest {
     fun `un contexte borne ne depend pas d'un autre contexte borne`(classes: JavaClasses) {
         val contexts = listOf("identity", "ingestion", "activity", "costmodel", "fiscal", "performance")
         contexts.forEach { context ->
-            val others = contexts.filter { it != context }.map { "eu.kadran.$it.." }.toTypedArray()
+            val others = contexts.filter { it != context }.map { "io.korallis.kadran.$it.." }.toTypedArray()
             noClasses()
                 .that()
-                .resideInAPackage("eu.kadran.$context..")
+                .resideInAPackage("io.korallis.kadran.$context..")
                 .should()
                 .dependOnClassesThat()
                 .resideInAnyPackage(*others)

@@ -14,7 +14,7 @@ tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
     violationRules {
         rule {
             element = "CLASS"
-            includes = listOf("eu.kadran.*.domain.*")
+            includes = listOf("io.korallis.kadran.*.domain.*")
             limit {
                 counter = "LINE"
                 value = "COVEREDRATIO"
