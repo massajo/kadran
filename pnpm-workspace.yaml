@@ -1,0 +1,22 @@
+packages:
+  - web
+
+# Scripts d'installation autorisés, nommément. Une dépendance qui exécute du code
+# à l'installation est une surface d'attaque : on l'approuve une par une.
+# `unrs-resolver` est le résolveur natif d'eslint-plugin-import-x, tiré par
+# eslint-config-next ; son script compile un binaire.
+allowBuilds:
+  unrs-resolver: true
+
+# pnpm refuse par défaut les versions publiées trop récemment (protection contre
+# les publications malveillantes). Ces paquets sont exclus de ce délai parce que
+# la version épinglée est celle du catalogue.
+minimumReleaseAgeExclude:
+  - '@vitest/expect@4.1.11'
+  - '@vitest/mocker@4.1.11'
+  - '@vitest/pretty-format@4.1.11'
+  - '@vitest/runner@4.1.11'
+  - '@vitest/snapshot@4.1.11'
+  - '@vitest/spy@4.1.11'
+  - '@vitest/utils@4.1.11'
+  - vitest@4.1.11
