@@ -1,0 +1,27 @@
+# Surcouche à la configuration detekt par défaut (`buildUponDefaultConfig = true`).
+# On ne redéclare que ce qui diffère.
+
+build:
+  maxIssues: 0
+
+complexity:
+  LongParameterList:
+    # Les agrégats du domaine portent beaucoup de champs et sont construits en une fois
+    # (cf. Outing §4.4, RevenueRecord §7.3). Les découper artificiellement nuirait au modèle.
+    functionThreshold: 8
+    constructorThreshold: 16
+
+style:
+  MaxLineLength:
+    maxLineLength: 120
+  ForbiddenComment:
+    comments:
+      - reason: "Un FIXME non traite devient une dette invisible : ouvrir une issue KDN."
+        value: 'FIXME:'
+      - reason: "Ne jamais fusionner un STOPSHIP."
+        value: 'STOPSHIP:'
+
+naming:
+  FunctionNaming:
+    # Les tests Kotest nomment leurs cas en français, entre backticks.
+    excludes: ['**/test/**']

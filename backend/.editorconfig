@@ -1,0 +1,6 @@
+# Réglages ktlint propres au back. Hérite du .editorconfig de la racine du dépôt.
+
+[**/src/test/**/*.kt]
+# Les cas de test sont nommés en français entre backticks : c'est ce qui rend un rapport
+# d'échec lisible sans ouvrir le fichier. La règle de nommage camelCase ne s'y applique pas.
+ktlint_standard_function-naming = disabled
