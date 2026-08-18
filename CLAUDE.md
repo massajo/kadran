@@ -171,6 +171,10 @@ Ces points ont déjà coûté du temps ou en coûteront. Ils sont documentés po
 | CSV Heetch | `€` préfixé et collé au montant · `Mois` en `yyyy-M` sans zéro · une **ligne `Total`** à écarter · `Chiffre d'affaire HT` au singulier, à ne pas « corriger » |
 | CSV Driversnote | `Taux` est arrondi à 2 décimales mais `Remboursement` ne l'est pas — **ne jamais recalculer l'un depuis l'autre**, ni écrire de contrôle en égalité stricte |
 | Driversnote | `Début` et `Fin` peuvent porter une heure ou non. Accepter `dd/MM/yyyy` et `dd/MM/yyyy HH:mm`, et mettre `window` à `null` plutôt que d'inventer `00:00` |
+| CSV factures Uber | 19 colonnes, **pas 18**. Noms accentués : `NuméroFacture`, `Quantité`, `ÉtiquetteTaxeUtilisateur`. `Tauxtaxe` avec un **`t` minuscule**, et sa valeur est la **chaîne `10%`**, pas `0.10`. HT = `MontantNet`, TTC = `MontantBrut` — `MontantHT`/`MontantTTC` n'existent pas |
+| CSV factures Uber | `IdentifiantTaxeFournisseur` et `ÉtiquetteTaxeFournisseur` sont deux **listes parallèles dont l'ordre varie d'une ligne à l'autre**. Apparier par position dans chaque liste, ne jamais supposer que le SIREN vient en premier |
+| CSV factures Uber | **Aucun horodatage** — `DateFacture` est une date seule. Le rapprochement se fait par **journée + montant**, jamais par horodatage. Jusqu'à 14 factures le même jour dans l'échantillon |
+| CSV factures Uber | `AdresseUtilisateur` n'est **pas** minimisée à la source : le plus souvent une ville, parfois une adresse postale complète. `AdresseFournisseur` est l'adresse **personnelle du chauffeur** |
 | Uber | Aucun identifiant commun entre les trois documents. Le rapprochement se fait par horodatage et montant, avec résolution manuelle en dessous du seuil de confiance |
 | Uber | Le relevé hebdomadaire donne le net, les factures donnent le brut. La commission ne se calcule qu'en croisant les deux |
 | Fuseau | `Europe/Paris`. Une nuit de passage à l'heure d'hiver dure 25 heures : l'amplitude doit le refléter |

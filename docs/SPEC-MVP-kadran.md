@@ -1,10 +1,12 @@
 # Kadran — Spec MVP
 ### Plateforme d'analyse de rentabilité pour chauffeurs VTC
 
-**Version :** 1.5
+**Version :** 1.6
 **Destinataire :** Claude Code (implémentation) + Claude Design (maquettes)
 **Stack :** Next.js 15 (App Router) / React 19 / shadcn-ui — Spring Boot 3.4 / Kotlin 2.1 / PostgreSQL 16 / Liquibase
 
+> **v1.5 → v1.6** : §3.3 **corrigée sur export réel** — 19 colonnes et non 18, 7 noms erronés, `Tauxtaxe` en chaîne `10%`, `MontantNet`/`MontantBrut` au lieu de `MontantHT`/`MontantTTC` · **les factures ne portent aucun horodatage**, le rapprochement `TripMatcher` se fait par journée et montant, pas par horodatage · `NuméroFacture` retenu comme `externalRef` Uber · spike KDN-66 clos.
+>
 > **v1.4 → v1.5** : §10.6 pipeline CI/CD complet jusqu'à la publication d'images · EPIC KDN-1 étendu et rendu bloquant · backlog détaillé back/front/infra externalisé dans `BACKLOG.md` · instructions d'implémentation dans `CLAUDE.md` · brief et versionnement des maquettes dans `DESIGN-BRIEF.md`.
 >
 > **v1.3 → v1.4** : **périmètre v1 restreint à Uber** (ADR-008) · §3.7 métriques disponibles et indisponibles en mono-plateforme · `Amplitude` typée `Observed`/`Floor` (ADR-009) · pipeline d'ingestion générique séparé des profils plateforme · epics Bolt, Heetch et arbitrage reportés en v1.1, profils déjà spécifiés · ordre de traitement recommandé.
@@ -109,11 +111,77 @@ Section *Détails pour : Vos revenus* : Prix total du trajet (net de frais) · P
 
 → Grain **mois**. Sur cet exemple : 786,91 / 2 257,18 = **34,9 %**.
 
-### 3.3 Uber — factures (CSV)
+### 3.3 Uber — factures (CSV) — **vérifié sur export réel**
 
-`NumeroFacture`, `DateFacture`, `Devise`, `LienFacture`, `NomUtilisateur`, `IdentifiantTaxeUtilisateur`, `EtiquetteTaxeUtilisateur`, `AdresseUtilisateur`, `NomFournisseur`, `PaysFournisseur`, `IdentifiantTaxeFournisseur`, `EtiquetteTaxeFournisseur`, `DescriptionArticle`, `Quantite`, `MontantHT`, `TauxTaxe`, `MontantTaxe`, `MontantTTC`.
+> Section corrigée d'après un export réel `UBER-2026-07-17-2026-08-17-driver-to-rider-invoice.csv`
+> (90 lignes, 19 colonnes). **Elle remplace la liste supposée de la v1.4, qui était fausse sur
+> 7 des 18 colonnes annoncées.** Décision KDN-66 close.
 
-→ Grain **course**. Seule source du prix payé par le passager. Contient de la **PII passager** (§7).
+**Forme du fichier.** UTF-8 **sans BOM**, fins de ligne `LF`, séparateur `,`, valeurs entre
+guillemets, décimale `.`, devise `EUR` constante. Nom de fichier porteur de la période :
+`UBER-<début>-<fin>-driver-to-rider-invoice.csv`.
+
+| # | Colonne réelle | Contenu | Mapping |
+|---|---|---|---|
+| 0 | `NuméroFacture` | forme `A-99-9999-9999999`, unique par ligne | **`externalRef`** |
+| 1 | `DateFacture` | `yyyy-MM-dd` — **date seule, aucune heure** | `coverage` (journée) |
+| 2 | `Devise` | `EUR` | `Money.currency` |
+| 3 | `LienFacture` | URL de la facture PDF | `platformExtras`, non suivi |
+| 4 | `NomUtilisateur` | prénom + nom du passager | **PII passager** → §8.1 |
+| 5 | `AdresseUtilisateur` | **hétérogène** : ville seule, ou adresse complète avec code postal | **PII passager** → §8.1 |
+| 6 | `IdentifiantTaxeUtilisateur` | vide sur 85 lignes / 90 | ignoré si vide |
+| 7 | `ÉtiquetteTaxeUtilisateur` | liste : `n° TVA,SIREN,Electronic Address` | apparié à la colonne 6 |
+| 8 | `NomFournisseur` | raison sociale du chauffeur | `platformExtras` |
+| 9 | `AdresseFournisseur` | **adresse du chauffeur** — constante | **PII chauffeur** → §8.1 |
+| 10 | `IdentifiantTaxeFournisseur` | liste `SIREN,TVA` — **ordre variable** | `platformExtras` |
+| 11 | `ÉtiquetteTaxeFournisseur` | liste d'étiquettes — **ordre variable** | apparié à la colonne 10 |
+| 12 | `DescriptionArticle` | `Prix du service de transport` | `ServiceNature` |
+| 13 | `Quantité` | `1` sur toutes les lignes | — |
+| 14 | `MontantNet` | montant **HT** | base HT |
+| 15 | `Tauxtaxe` | **`10%` — chaîne avec le signe `%`** | `ServiceNature` = `POINT_TO_POINT` |
+| 16 | `MontantTaxe` | TVA | `F2` collectée |
+| 17 | `MontantBrut` | montant **TTC** | **`R1`** |
+| 18 | `MontantTotal` | **strictement identique à `MontantBrut`** (90/90) | contrôle |
+
+**Écarts par rapport à la liste supposée en v1.4.** `NumeroFacture` → `NuméroFacture` (accentué) ·
+`EtiquetteTaxeUtilisateur` → `ÉtiquetteTaxeUtilisateur` (`É` majuscule accentué) · `Quantite` →
+`Quantité` · `TauxTaxe` → **`Tauxtaxe`** (second `t` minuscule) · `MontantHT` → `MontantNet` ·
+`MontantTTC` → `MontantBrut` · `PaysFournisseur` → `AdresseFournisseur` · colonnes `MontantTotal`
+ajoutée · ordre des colonnes 5 à 7 différent. Les noms sont à reprendre **exactement**, accents et
+casse compris.
+
+**Contrôles d'intégrité vérifiés sur l'échantillon (90/90 lignes, écart nul) :**
+- `MontantNet + MontantTaxe = MontantBrut`
+- `MontantBrut = MontantTotal`
+- `MontantTaxe = MontantNet × 10 %` à ±0,01 près
+
+**Pièges de parsing.**
+- `Tauxtaxe` vaut la **chaîne** `10%`, pas `0.10` ni `10`. Le `%` fait partie de la valeur.
+- `IdentifiantTaxeFournisseur` et `ÉtiquetteTaxeFournisseur` sont deux listes parallèles séparées par
+  des virgules **dont l'ordre varie d'une ligne à l'autre** (53 lignes dans un ordre, 37 dans
+  l'autre). Il faut **apparier étiquette et valeur par position dans leur propre liste**, jamais
+  supposer que le SIREN vient en premier.
+- `AdresseUtilisateur` n'est **pas** minimisée à la source : la plupart des lignes ne portent qu'une
+  ville, mais au moins une porte une adresse postale complète. Le traitement §8.1 est indispensable.
+- `AdresseFournisseur` est l'adresse personnelle du chauffeur — la même que le libellé `Home` des
+  exports Driversnote (§3.5).
+
+⚠️ **Aucun horodatage.** `DateFacture` est une **date seule**. Les factures ne portent ni heure, ni
+distance, ni durée, ni adresse de prise en charge ou de dépose. Conséquences directes :
+
+- Le rapprochement avec le relevé hebdomadaire (§7.7, `TripMatcher`) ne peut **pas** se faire « par
+  horodatage et montant » comme annoncé : il se fait par **journée + montant**, ce qui est bien plus
+  faible. L'échantillon compte jusqu'à **14 factures sur une même journée**, dont plusieurs à des
+  montants proches. Le taux de résolution manuelle sera nettement supérieur à ce qu'anticipait la
+  spec, et le seuil de confiance doit être calibré en conséquence.
+- `M4` et `M5` restent inactives : pas de distance par course (ADR-004).
+
+**Totaux constatés sur la période du 17/07 au 17/08/2026** — 90 courses :
+Σ HT = 1 292,65 € · Σ TVA = 129,31 € · Σ TTC = **1 421,96 €**. Ce Σ TTC est le `R1` de la période,
+à croiser avec le net du relevé hebdomadaire pour obtenir `R3`.
+
+→ Grain **course**. Seule source du prix payé par le passager. Contient de la **PII passager**
+et de la **PII chauffeur** (§8.1).
 
 ### 3.4 Bolt — export « Revenus par chauffeur » (CSV)
 
