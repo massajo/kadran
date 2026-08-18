@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/* Le thème sombre est le défaut du produit : consultation depuis le véhicule, souvent
+   la nuit, souvent fatigué (DESIGN-BRIEF §1). La variante claire s'active par
+   `data-theme="light"` sur la racine. */
+@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
+
+/* Les tokens de Kadran vivront dans `tokens.css`, généré par `pnpm tokens` depuis
+   design/tokens.json (DESIGN-BRIEF §5.6). Ce fichier n'est pas encore livré : aucune
+   couleur de marque n'est définie ici, seules les valeurs par défaut de Tailwind sont
+   utilisées. Voir KDN-4. */
+
+:root {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-neutral-950 text-neutral-100 antialiased;
+}
+
+:root[data-theme="light"] body {
+  @apply bg-white text-neutral-900;
+}
