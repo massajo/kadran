@@ -1,10 +1,12 @@
 # Kadran — Spec MVP
 ### Plateforme d'analyse de rentabilité pour chauffeurs VTC
 
-**Version :** 1.6
+**Version :** 1.7
 **Destinataire :** Claude Code (implémentation) + Claude Design (maquettes)
-**Stack :** Next.js 15 (App Router) / React 19 / shadcn-ui — Spring Boot 3.4 / Kotlin 2.1 / PostgreSQL 16 / Liquibase
+**Stack :** Next.js 15 (App Router) / React 19 / shadcn-ui — Spring Boot 3.5 / Kotlin 2.2 / Gradle 9 / JDK 21 / PostgreSQL 16 / Liquibase
 
+> **v1.6 → v1.7** : §10.3 **versions figées sur ce qui est réellement livré** — Gradle 9.7, Spring Boot 3.5, Kotlin 2.2, JDK 21, et non plus Spring Boot 3.4 / Kotlin 2.1 · paquet racine `io.korallis.kadran`, `core` pour le shared-kernel · deux incompatibilités de chaîne de construction documentées.
+>
 > **v1.5 → v1.6** : §3.3 **corrigée sur export réel** — 19 colonnes et non 18, 7 noms erronés, `Tauxtaxe` en chaîne `10%`, `MontantNet`/`MontantBrut` au lieu de `MontantHT`/`MontantTTC` · **les factures ne portent aucun horodatage**, le rapprochement `TripMatcher` se fait par journée et montant, pas par horodatage · `NuméroFacture` retenu comme `externalRef` Uber · spike KDN-66 clos.
 >
 > **v1.4 → v1.5** : §10.6 pipeline CI/CD complet jusqu'à la publication d'images · EPIC KDN-1 étendu et rendu bloquant · backlog détaillé back/front/infra externalisé dans `BACKLOG.md` · instructions d'implémentation dans `CLAUDE.md` · brief et versionnement des maquettes dans `DESIGN-BRIEF.md`.
@@ -932,6 +934,37 @@ Règle ArchUnit : `domain` ne dépend que de `shared-kernel` et de la stdlib ; `
 | Auth | JWT + refresh, Spring Security | — |
 | Observabilité | Micrometer + OpenTelemetry, `correlation_id` en MDC | taux d'échec de parsing par profil |
 | Tests | JUnit 5, Kotest, **MockK**, Testcontainers, ArchUnit | §10.4 |
+
+**Versions de la chaîne de construction** — figées sur ce qui est effectivement livré par KDN-3,
+et non sur une intention. Toute version se déclare dans `backend/gradle/libs.versions.toml`,
+jamais en dur dans un script de build.
+
+| Élément | Version | Remarque |
+|---|---|---|
+| JDK | 21 | `jvmToolchain(21)`, cible `JVM_21` |
+| Gradle | 9.7 | wrapper commité, racine de construction dans `backend/` |
+| Kotlin | 2.2 | `allWarningsAsErrors`, `-Xjsr305=strict` |
+| Spring Boot | 3.5 | BOM importé par `io.spring.dependency-management` |
+| detekt | 1.23 | dernière stable ; la 2.x est encore en alpha |
+| ktlint | 1.5 via `ktlint-gradle` 14 | |
+| ArchUnit | 1.5 | |
+| Kotest / MockK | 6.2 / 1.14 | MockK réservé à la couche `application` (§10.4) |
+
+**Paquet racine : `io.korallis.kadran`.** Un contexte borné occupe
+`io.korallis.kadran.<contexte>` — par exemple `io.korallis.kadran.performance` ; `platform`
+occupe `io.korallis.kadran.platform` ; le shared-kernel occupe **`io.korallis.kadran.core`**, le
+paquet désignant ce que la brique est pour le reste du code plutôt que le nom de son module.
+
+**Deux incompatibilités de chaîne de construction, résolues et à ne pas redécouvrir.**
+
+- `io.spring.dependency-management` applique le BOM Spring Boot à **toutes** les configurations,
+  y compris celles dont le Kotlin Gradle Plugin se sert pour la compilation incrémentale. Il y
+  rétrograde `kotlin-build-tools-impl` et fait échouer la compilation dès qu'un module a des
+  sources. La propriété `kotlin.version` du BOM doit être alignée sur le catalogue.
+- detekt embarque son propre compilateur Kotlin et refuse de tourner sous une version différente,
+  alors que le Kotlin Gradle Plugin aligne tout le groupe `org.jetbrains.kotlin` sur celle du
+  projet. La règle de résolution doit être réenregistrée **après** la sienne, et ne porter que sur
+  la configuration `detekt`.
 
 ### 10.4 Stratégie de test
 

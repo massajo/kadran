@@ -100,8 +100,10 @@ kadran/
 # Environnement complet
 docker compose -f docker/compose.yml up -d
 
-# Backend
+# Backend — la construction Gradle a sa racine dans backend/
+cd backend
 ./gradlew check                        # ktlint, detekt, tests, ArchUnit, couverture
+./gradlew ktlintFormat                 # corrige le formatage
 ./gradlew :app:bootRun
 ./gradlew liquibaseUpdate liquibaseRollbackCount -PliquibaseCommandValue=1
 
