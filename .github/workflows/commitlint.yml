@@ -1,0 +1,47 @@
+name: commitlint
+
+# Vérifie le titre de la PR et chaque commit de la PR contre la convention
+# `<type>(<scope>): [KDN-<n>] <description>` — cf. CLAUDE.md §6 et spec §11.2.
+# `edited` est nécessaire pour relancer la vérification quand le titre de la
+# PR est modifié après coup, sans nouveau commit.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+        with:
+          # Historique complet : commitlint doit pouvoir parcourir tous les
+          # commits entre la base et la tête de la PR.
+          fetch-depth: 0
+
+      - name: Installer pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Installer les dépendances
+        run: pnpm install --frozen-lockfile
+
+      - name: Vérifier chaque commit de la PR
+        run: >
+          pnpm exec commitlint
+          --from ${{ github.event.pull_request.base.sha }}
+          --to ${{ github.event.pull_request.head.sha }}
+          --verbose
+
+      - name: Vérifier le titre de la PR
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: echo "$PR_TITLE" | pnpm exec commitlint --verbose

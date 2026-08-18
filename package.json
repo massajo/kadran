@@ -6,6 +6,11 @@
     "node": ">=22"
   },
   "scripts": {
-    "verify": "pnpm --filter web verify"
+    "verify": "pnpm --filter web verify",
+    "commitlint": "commitlint"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2"
   }
 }
