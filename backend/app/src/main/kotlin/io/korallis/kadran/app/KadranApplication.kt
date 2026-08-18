@@ -1,4 +1,4 @@
-package eu.kadran.app
+package io.korallis.kadran.app
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
@@ -9,7 +9,7 @@ import org.springframework.boot.runApplication
  * Le module `app` ne porte aucune règle métier : il compose les contextes bornés
  * et fournit le bootstrap Spring (spec §10.1).
  */
-@SpringBootApplication(scanBasePackages = ["eu.kadran"])
+@SpringBootApplication(scanBasePackages = ["io.korallis.kadran"])
 class KadranApplication
 
 // `runApplication` impose le spread sur `args` : la copie de tableau qu'il provoque a lieu
