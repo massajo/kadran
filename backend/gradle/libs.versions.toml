@@ -1,0 +1,36 @@
+# Catalogue de versions — source unique de vérité des dépendances du back.
+# Toute version se déclare ici, jamais en dur dans un build.gradle.kts.
+
+[versions]
+kotlin        = "2.2.0"
+springBoot    = "3.5.3"
+springDepMgmt = "1.1.7"
+detekt        = "1.23.8"
+ktlint        = "14.2.0"
+archunit      = "1.5.0"
+kotest        = "6.2.4"
+mockk         = "1.14.11"
+
+[libraries]
+# --- test : socle commun ---
+kotest-runner     = { module = "io.kotest:kotest-runner-junit5",     version.ref = "kotest" }
+kotest-assertions = { module = "io.kotest:kotest-assertions-core",   version.ref = "kotest" }
+kotest-property   = { module = "io.kotest:kotest-property",          version.ref = "kotest" }
+mockk             = { module = "io.mockk:mockk",                     version.ref = "mockk" }
+archunit-junit5   = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
+
+# --- déclarées ici pour être appliquées depuis buildSrc ---
+kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+# Fournit l'id `org.jetbrains.kotlin.plugin.spring` : ouvre les classes annotees Spring,
+# que Kotlin declare `final` par defaut.
+kotlin-allopen-plugin = { module = "org.jetbrains.kotlin:kotlin-allopen", version.ref = "kotlin" }
+detekt-gradle-plugin = { module = "io.gitlab.arturbosch.detekt:detekt-gradle-plugin", version.ref = "detekt" }
+ktlint-gradle-plugin = { module = "org.jlleitschuh.gradle:ktlint-gradle", version.ref = "ktlint" }
+spring-boot-gradle-plugin = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "springBoot" }
+spring-depmgmt-gradle-plugin = { module = "io.spring.gradle:dependency-management-plugin", version.ref = "springDepMgmt" }
+
+[plugins]
+kotlin-jvm     = { id = "org.jetbrains.kotlin.jvm",           version.ref = "kotlin" }
+kotlin-spring  = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
+spring-boot    = { id = "org.springframework.boot",           version.ref = "springBoot" }
+spring-depmgmt = { id = "io.spring.dependency-management",    version.ref = "springDepMgmt" }
