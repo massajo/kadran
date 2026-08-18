@@ -133,6 +133,11 @@ Closes #<n>
 Types : `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `build`, `ci`.
 Scopes : `activity`, `ingestion`, `costmodel`, `fiscal`, `performance`, `identity`, `privacy`, `audit`, `platform`, `web`, `db`, `ci`.
 
+**Aucun pied de co-auteur.** Pas de `Co-Authored-By:`, pas de mention d'outil ou d'assistant, ni
+dans le message de commit ni dans le corps d'une PR. Les seuls pieds admis sont `Refs:`,
+`Closes #`, et `BREAKING CHANGE:`. Un message de commit dit ce qui change et pourquoi ; par qui ou
+par quoi relève de l'auteur du commit, pas de son message.
+
 ### Liquibase
 
 Fichier : `backend/app/src/main/resources/db/changelog/changes/yyyyMMdd-KDN-<n>-<description-kebab>.sql`
