@@ -1,10 +1,12 @@
 # Kadran — Spec MVP
 ### Plateforme d'analyse de rentabilité pour chauffeurs VTC
 
-**Version :** 1.7
+**Version :** 1.8
 **Destinataire :** Claude Code (implémentation) + Claude Design (maquettes)
 **Stack :** Next.js 15 (App Router) / React 19 / shadcn-ui — Spring Boot 3.5 / Kotlin 2.2 / Gradle 9 / JDK 21 / PostgreSQL 16 / Liquibase
 
+> **v1.7 → v1.8** : §11.2 — le titre de commit porte `[KDN-<n>]` en tête de description, après le préfixe Conventional Commits · §11.1 — le séparateur des fichiers et identifiants Liquibase passe à l'underscore, et les exemples sont renumérotés sur les issues réellement créées · §8.4 — l'identifiant de changeset de `audit_event` portait `kadran:20260818-04-01`, sans trigramme, contraire à l'ADR-007.
+>
 > **v1.6 → v1.7** : §10.3 **versions figées sur ce qui est réellement livré** — Gradle 9.7, Spring Boot 3.5, Kotlin 2.2, JDK 21, et non plus Spring Boot 3.4 / Kotlin 2.1 · paquet racine `io.korallis.kadran`, `core` pour le shared-kernel · deux incompatibilités de chaîne de construction documentées.
 >
 > **v1.5 → v1.6** : §3.3 **corrigée sur export réel** — 19 colonnes et non 18, 7 noms erronés, `Tauxtaxe` en chaîne `10%`, `MontantNet`/`MontantBrut` au lieu de `MontantHT`/`MontantTTC` · **les factures ne portent aucun horodatage**, le rapprochement `TripMatcher` se fait par journée et montant, pas par horodatage · `NuméroFacture` retenu comme `externalRef` Uber · spike KDN-66 clos.
@@ -748,7 +750,7 @@ Rendu par défaut `M*** D***`, `91300 Massy`. Bascule « afficher en clair » : 
 Table append-only, partitionnée par mois.
 
 ```sql
---changeset kadran:20260818-04-01 labels:audit context:all
+--changeset kadran:20260818_KDN-21_01 labels:audit context:all
 CREATE TABLE audit_event (
     id              BIGSERIAL,
     occurred_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1047,15 +1049,19 @@ ghcr.io/<org>/kadran-web:{sha|semver|latest}
 **Trigramme projet : `KDN`.** Toute référence d'issue s'écrit `KDN-<numéro>`.
 
 **Format :** SQL. **Emplacement :** `app/src/main/resources/db/changelog/changes/`.
-**Fichier :** `yyyyMMdd-KDN-<numéro d'issue>-<description-kebab-case>.sql`
-**Identifiant de changeset :** `kadran:yyyyMMdd-KDN-<issue>-<séquence>`
+**Fichier :** `yyyyMMdd_KDN-<numéro d'issue>_<description-kebab-case>.sql`
+**Identifiant de changeset :** `kadran:yyyyMMdd_KDN-<issue>_<séquence>`
+
+Le séparateur est l'underscore, la référence d'issue reste en tirets : `KDN-21` ne se coupe pas.
+Les trois segments — date, issue, description — se distinguent ainsi de la description elle-même,
+qui est en kebab-case.
 
 ```
-20260818-KDN-04-create-audit-event.sql
-20260818-KDN-12-create-tenant-and-membership.sql
-20260819-KDN-15-create-outing-table.sql
-20260820-KDN-15-add-outing-linked-revenue.sql
-20260825-KDN-23-seed-provision-rates-2026.sql
+20260818_KDN-21_create-audit-event.sql
+20260818_KDN-27_create-tenant-and-membership.sql
+20260819_KDN-34_create-outing-table.sql
+20260820_KDN-34_add-outing-linked-revenue.sql
+20260825_KDN-101_seed-provision-rates-2026.sql
 ```
 
 Le trigramme n'est pas décoratif : il rend les fichiers identifiables une fois extraits de leur arborescence — dans un diff, une revue de PR, un log Liquibase, ou le jour où un second dépôt partagera la même base.
@@ -1077,7 +1083,7 @@ Gabarit :
 ```sql
 --liquibase formatted sql
 
---changeset kadran:20260819-KDN-15-01 labels:activity context:all
+--changeset kadran:20260819_KDN-34_01 labels:activity context:all
 --comment Création de la table outing
 CREATE TABLE outing (
     id             UUID PRIMARY KEY,
