@@ -1,0 +1,33 @@
+# Contexte de build Docker (racine du monorepo) — exclure ce qui n'est
+# nécessaire ni à l'image backend ni à l'image frontend (spec §10.6).
+
+.git
+.github
+
+# Node / pnpm
+**/node_modules
+**/.next
+**/.turbo
+**/coverage
+**/*.tsbuildinfo
+
+# Gradle / JVM
+backend/**/build
+backend/**/.gradle
+**/*.class
+**/*.jar
+!backend/gradle/wrapper/gradle-wrapper.jar
+
+# Documentation, maquettes, échantillons — PII et hors périmètre runtime
+docs
+design
+samples
+*.pdf
+
+# Environnement et outils locaux — aucun secret dans le contexte de build
+.env
+.env.*
+!.env.example
+.idea
+.vscode
+docker/.data
