@@ -53,7 +53,7 @@ RUN --mount=type=cache,target=/root/.gradle \
 
 # --- Extraction des couches du JAR Spring Boot ---
 # `-Djarmode=layertools` est déprécié depuis Spring Boot 3.3 ; le jarmode `tools`
-# (disponible et vérifié sur Spring Boot 3.5.3, cf. `libs.versions.toml`) le
+# (disponible et vérifié sur Spring Boot 4.1.0, cf. `libs.versions.toml`) le
 # remplace avec la même sémantique de couches (`dependencies`,
 # `spring-boot-loader`, `snapshot-dependencies`, `application`).
 # Le nom du JAR porte la version du projet (`app-0.1.0-SNAPSHOT.jar`) : on le
@@ -64,9 +64,17 @@ RUN JAR="$(find app/build/libs -maxdepth 1 -name '*.jar' ! -name '*-plain.jar')"
 # --- Runtime : JRE seul, non-root, uniquement les couches extraites ---
 FROM eclipse-temurin:21-jre-alpine AS runtime
 
+# Les paquets Alpine de l'image de base accusent le retard des dépôts au moment
+# où elle a été publiée : `libexpat` et `p11-kit` y traînent des CVE HIGH déjà
+# corrigées en amont. `apk upgrade` les rattrape au build, ce que la porte Trivy
+# de la spec §10.6 exige — sans quoi l'image échoue le scan quelle que soit la
+# fraîcheur du code applicatif. `--no-cache` évite de laisser l'index apk dans
+# la couche finale.
+#
 # `addgroup`/`adduser` BusyBox : `-G` attache l'utilisateur au groupe créé,
 # sinon son groupe primaire retombe sur un groupe générique (cf. web/Dockerfile).
-RUN addgroup --system --gid 1001 kadran \
+RUN apk upgrade --no-cache \
+    && addgroup --system --gid 1001 kadran \
     && adduser --system --uid 1001 -G kadran kadran
 
 WORKDIR /app

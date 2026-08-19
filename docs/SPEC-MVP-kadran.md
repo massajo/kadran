@@ -1,10 +1,12 @@
 # Kadran — Spec MVP
 ### Plateforme d'analyse de rentabilité pour chauffeurs VTC
 
-**Version :** 1.8
+**Version :** 1.9
 **Destinataire :** Claude Code (implémentation) + Claude Design (maquettes)
-**Stack :** Next.js 15 (App Router) / React 19 / shadcn-ui — Spring Boot 3.5 / Kotlin 2.2 / Gradle 9 / JDK 21 / PostgreSQL 18 / Liquibase
+**Stack :** Next.js 15 (App Router) / React 19 / shadcn-ui — Spring Boot 4.1 / Kotlin 2.2 / Gradle 9 / JDK 21 / PostgreSQL 18 / Liquibase
 
+> **v1.8 → v1.9** : §10.3 **passage à Spring Boot 4.1** (KDN-127), qui entraîne Spring Framework 7, Tomcat 11, Jackson 3, Liquibase 5 et Testcontainers 2 · la première incompatibilité de chaîne de construction est **réécrite** : elle survit à la majeure mais s'est inversée, le BOM ne rétrograde plus le compilateur Kotlin, il en promeut une partie · `spring-boot-starter-web` déprécié au profit de `-webmvc`, l'auto-configuration Liquibase sortie du cœur.
+>
 > **v1.7 → v1.8** : §11.2 — le titre de commit porte `[KDN-<n>]` en tête de description, après le préfixe Conventional Commits · §11.1 — le séparateur des fichiers et identifiants Liquibase passe à l'underscore, et les exemples sont renumérotés sur les issues réellement créées · §8.4 — l'identifiant de changeset de `audit_event` portait `kadran:20260818-04-01`, sans trigramme, contraire à l'ADR-007.
 >
 > **v1.6 → v1.7** : §10.3 **versions figées sur ce qui est réellement livré** — Gradle 9.7, Spring Boot 3.5, Kotlin 2.2, JDK 21, et non plus Spring Boot 3.4 / Kotlin 2.1 · paquet racine `io.korallis.kadran`, `core` pour le shared-kernel · deux incompatibilités de chaîne de construction documentées.
@@ -1015,7 +1017,7 @@ jamais en dur dans un script de build.
 | JDK | 21 | `jvmToolchain(21)`, cible `JVM_21` |
 | Gradle | 9.7 | wrapper commité, racine de construction dans `backend/` |
 | Kotlin | 2.2 | `allWarningsAsErrors`, `-Xjsr305=strict` |
-| Spring Boot | 3.5 | BOM importé par `io.spring.dependency-management` |
+| Spring Boot | 4.1 | BOM importé par `io.spring.dependency-management` ; entraîne Spring Framework 7, Tomcat 11, Jackson 3, Liquibase 5, Testcontainers 2 |
 | detekt | 1.23 | dernière stable ; la 2.x est encore en alpha |
 | ktlint | 1.5 via `ktlint-gradle` 14 | |
 | ArchUnit | 1.5 | |
@@ -1026,16 +1028,32 @@ jamais en dur dans un script de build.
 occupe `io.korallis.kadran.platform` ; le shared-kernel occupe **`io.korallis.kadran.core`**, le
 paquet désignant ce que la brique est pour le reste du code plutôt que le nom de son module.
 
-**Deux incompatibilités de chaîne de construction, résolues et à ne pas redécouvrir.**
+**Trois incompatibilités de chaîne de construction, résolues et à ne pas redécouvrir.**
 
 - `io.spring.dependency-management` applique le BOM Spring Boot à **toutes** les configurations,
-  y compris celles dont le Kotlin Gradle Plugin se sert pour la compilation incrémentale. Il y
-  rétrograde `kotlin-build-tools-impl` et fait échouer la compilation dès qu'un module a des
-  sources. La propriété `kotlin.version` du BOM doit être alignée sur le catalogue.
+  y compris celles dont le Kotlin Gradle Plugin se sert pour la compilation incrémentale. Le
+  symptôme dépend du sens de l'écart entre le `kotlin.version` du BOM et celui du catalogue, et
+  **il s'est inversé au passage en Spring Boot 4.1** : le BOM y épingle Kotlin 2.3, plus récent
+  que le projet, si bien qu'il ne rétrograde plus `kotlin-build-tools-impl` mais promeut autour
+  de lui `kotlin-compiler-embeddable` et les modules `kotlin-scripting-*`. La compilation part
+  alors sur un classpath panaché et meurt sur un `NoClassDefFoundError`
+  (`kotlin/script/experimental/jvm/compat/ExpectedLocationUtilKt`) plutôt que sur une erreur de
+  compilation. **La résolution est inchangée et reste indispensable** : la propriété
+  `kotlin.version` du BOM doit être alignée sur le catalogue, quel que soit le sens de l'écart.
+  Le plugin reste par ailleurs pleinement supporté en Spring Boot 4 — Gradle y offre aussi le
+  support natif des BOM via `platform()`, mais il ne permet pas cette reprise de propriété.
 - detekt embarque son propre compilateur Kotlin et refuse de tourner sous une version différente,
   alors que le Kotlin Gradle Plugin aligne tout le groupe `org.jetbrains.kotlin` sur celle du
   projet. La règle de résolution doit être réenregistrée **après** la sienne, et ne porter que sur
   la configuration `detekt`.
+- Spring Boot 4 a renommé et redécoupé une partie de sa surface. Trois points touchent ce dépôt :
+  `spring-boot-starter-web` est déprécié au profit de **`spring-boot-starter-webmvc`** (l'ancien
+  nom ne disait pas s'il s'agissait de MVC ou de WebFlux) ; l'auto-configuration Liquibase est
+  sortie du cœur, `liquibase-core` seul sur le classpath ne déclenche plus rien et il faut
+  **`spring-boot-starter-liquibase`** ; et Testcontainers 2 préfixe tous ses modules par
+  `testcontainers-` (`org.testcontainers:postgresql` devient
+  `org.testcontainers:testcontainers-postgresql`) tout en déplaçant le conteneur dans
+  `org.testcontainers.postgresql`, sans plus de paramètre de type récursif.
 
 ### 10.4 Stratégie de test
 
@@ -1120,9 +1138,10 @@ de la donnée soumise à conservation, la seconde s'appuie sur un flux qu'on peu
 
 #### 10.7.1 Logs applicatifs
 
-**Format JSON dès le premier jour**, via le support structuré natif de Spring Boot 3.4+
-(`logging.structured.format.console`), sans dépendance externe : ajouter le JSON après coup oblige
-à réécrire chaque appel de log et chaque règle d'extraction en aval.
+**Format JSON dès le premier jour**, via le support structuré natif de Spring Boot
+(`logging.structured.format.console`, formats `ecs`, `gelf` et `logstash`), sans dépendance
+externe : ajouter le JSON après coup oblige à réécrire chaque appel de log et chaque règle
+d'extraction en aval. Ces propriétés n'ont pas changé de nom au passage en 4.x.
 
 Champs posés en MDC par le filtre de KDN-15, présents sur **chaque** ligne :
 
