@@ -1,0 +1,288 @@
+name: build-images
+
+# Publication des images de production (spec §10.6, issue KDN-13).
+#
+#   ghcr.io/<org>/kadran-backend:{sha|semver|latest}
+#   ghcr.io/<org>/kadran-web:{sha|semver|latest}
+#
+# Aucun filtre `paths` ici, contrairement aux CI de qualité : la spec exige
+# qu'« une image doit toujours pouvoir être rattachée à son commit ». L'invariant
+# utile est la réciproque — tout commit de `main` a son image étiquetée par son
+# SHA. Un filtre de chemins créerait des trous dans cette suite et rendrait
+# `ghcr.io/.../kadran-backend:<sha>` introuvable pour certains commits.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+# Volontairement SANS `cancel-in-progress`, à l'inverse de `ci-backend.yml`.
+# Une CI de qualité est idempotente et sans effet de bord : l'annuler ne coûte
+# qu'un verdict. Une publication d'image écrit dans un registre partagé ; une
+# annulation en cours de `push` peut laisser des blobs orphelins ou un index
+# incomplet, et surtout elle prive un commit de son image. On sérialise plutôt
+# que d'annuler.
+concurrency:
+  group: build-images-${{ github.ref }}
+  cancel-in-progress: false
+
+# Strict nécessaire. `packages: write` couvre à la fois le push des images et
+# celui des attestations SBOM/provenance, qui sont des manifestes du même dépôt
+# OCI. Aucune permission `attestations`/`id-token` : les attestations produites
+# ici sont celles de BuildKit, poussées dans GHCR, pas celles du service
+# d'attestation GitHub.
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  publish:
+    name: ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    # Le build `linux/arm64` du backend passe par l'émulation QEMU (cf. le bloc
+    # « COÛT DU MULTI-ARCH » plus bas) : mesuré à 37 min à froid sur une machine
+    # 8 vCPU, donc sensiblement plus sur un runner hébergé qui en a 2 ou 4.
+    # 120 min couvre un build à froid sans cache ; le défaut de 6 h laisserait
+    # un runner tourner une demi-journée sur un build parti en vrille.
+    timeout-minutes: 120
+    strategy:
+      # Les deux images sont indépendantes : une vulnérabilité dans l'une ne
+      # doit pas masquer le résultat de l'autre.
+      fail-fast: false
+      matrix:
+        include:
+          - image: kadran-backend
+            dockerfile: backend/Dockerfile
+          - image: kadran-web
+            dockerfile: web/Dockerfile
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      # `metadata-action` sait produire des étiquettes OCI, mais
+      # `backend/Dockerfile` et `web/Dockerfile` (KDN-6, KDN-7) les portent déjà
+      # via `ARG GIT_SHA / GIT_SOURCE / BUILD_DATE`. Deux mécanismes pour la même
+      # étiquette, c'est une divergence garantie le jour où l'un des deux change.
+      #
+      # Arbitrage : le Dockerfile reste la seule source des étiquettes, ce
+      # workflow ne consomme que la sortie `tags`. Raison de fond — la spec exige
+      # qu'une image soit toujours rattachable à son commit ; cette propriété doit
+      # tenir pour TOUT chemin de build, y compris le `docker build` local
+      # documenté en tête de chaque Dockerfile. La déporter dans le workflow
+      # ferait des images CI les seules correctement étiquetées.
+      #
+      # `BUILD_DATE` est repris de la sortie `json` de cette étape plutôt que
+      # recalculé : les deux builds ci-dessous (contrôle puis publication) doivent
+      # recevoir un horodatage identique, sans quoi la couche `runtime` change
+      # entre les deux et le cache est perdu.
+      - name: Calculer les étiquettes d'image
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          # `latest` doit avoir un sens et un seul. Ici : la tête de `main`.
+          # Le laisser suivre aussi les tags sémantiques en ferait une étiquette
+          # ambiguë, qui désignerait tantôt la trunk tantôt la dernière release.
+          flavor: latest=false
+          tags: |
+            type=sha,format=long,prefix=
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # QEMU d'abord, buildx ensuite : l'enregistrement `binfmt_misc` est
+      # global au noyau et doit précéder la création du builder qui s'en sert.
+      - name: Installer l'émulation QEMU (linux/arm64)
+        uses: docker/setup-qemu-action@v4
+
+      - name: Installer Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # ---------------------------------------------------------------------
+      # Porte de sécurité AVANT publication.
+      #
+      # La spec fait de « aucune vulnérabilité HIGH ou CRITICAL dans les images »
+      # une porte bloquante. Scanner après le push la rendrait cosmétique :
+      # l'image vulnérable serait déjà publique et déployable. On construit donc
+      # d'abord l'image pour la seule architecture native (`--load` impose une
+      # plateforme unique et interdit les attestations), on la scanne, et on ne
+      # rejoue le build multi-arch avec push que si le scan est vert.
+      #
+      # Le second build n'est pas un doublon coûteux : il s'exécute sur le même
+      # démon BuildKit, dont le cache local contient déjà toutes les couches
+      # amd64 fraîchement produites. Seule la moitié arm64 est réellement bâtie.
+      #
+      # Limite assumée : le scan porte sur la variante amd64. Les deux variantes
+      # partagent la même image de base et le même jeu de paquets système, donc
+      # le même inventaire de CVE OS ; l'écart possible est marginal et le coût
+      # d'un second scan sous émulation ne le justifie pas.
+      # ---------------------------------------------------------------------
+      - name: Construire l'image de contrôle (architecture native)
+        uses: docker/build-push-action@v7
+        with:
+          # Les deux Dockerfiles se construisent avec la RACINE du dépôt comme
+          # contexte (workspace pnpm côté web, arborescence Gradle côté back).
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          load: true
+          push: false
+          # Étiquette purement locale, jamais poussée : aucune confusion
+          # possible avec une étiquette publiée.
+          tags: ${{ matrix.image }}:scan
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            GIT_SOURCE=${{ github.server_url }}/${{ github.repository }}
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          # Pas de `cache-to` ici : c'est le build de publication qui exporte,
+          # une fois l'arm64 produit. Exporter deux fois sur la même portée
+          # écraserait le cache le plus complet par le plus pauvre.
+          provenance: false
+          sbom: false
+
+      # ÉTAT MESURÉ AU MOMENT DE L'ÉCRITURE (Trivy 0.74, images bâties depuis
+      # 5608703) — cette porte est ROUGE sur les deux images :
+      #
+      #   kadran-web       7 HIGH + 1 CRITICAL, toutes dans le npm embarqué de
+      #                    `node:22-alpine` (/usr/local/lib/node_modules/npm) :
+      #                    tar, sigstore, brace-expansion, picomatch,
+      #                    ip-address. AUCUNE dans les dépendances de Kadran.
+      #                    Le runtime `standalone` lance `node web/server.js` et
+      #                    n'utilise jamais npm — le correctif est de le purger
+      #                    de l'étage `runner`, dans `web/Dockerfile`.
+      #
+      #   kadran-backend  26 HIGH + 3 CRITICAL : 3 paquets Alpine
+      #                    (p11-kit, p11-kit-trust, libexpat, via
+      #                    `eclipse-temurin:21-jre-alpine`) et 26 CVE de
+      #                    dépendances Java — tomcat-embed-core 10.1.42 porte
+      #                    les 3 CRITICAL. Le correctif est une montée de
+      #                    Spring Boot 3.5.3 et du pilote PostgreSQL 42.7.7,
+      #                    dans `backend/`.
+      #
+      # Les deux correctifs sont hors du périmètre de KDN-13 et hors des
+      # fichiers que cette PR touche. La porte reste donc volontairement
+      # bloquante et non contournée : ni `exit-code: 0`, ni sévérité réduite,
+      # ni `.trivyignore` muet. Une porte que l'on désarme au premier échec
+      # n'est pas une porte, et la spec §10.6 la veut bloquante.
+      - name: Trivy — aucune vulnérabilité HIGH ou CRITICAL
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          # La base de vulnérabilités est tirée de GHCR ; le quota anonyme y est
+          # vite atteint et fait échouer le scan pour une raison sans rapport
+          # avec la sécurité de l'image. Le `GITHUB_TOKEN` du run suffit à s'en
+          # affranchir (lecture seule).
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ${{ matrix.image }}:scan
+          format: table
+          # `vuln` seul : la porte énoncée par la spec porte sur les
+          # vulnérabilités. Le scanner de secrets relève d'une autre exigence
+          # (« aucun secret dans une image ») et mérite sa propre issue plutôt
+          # qu'un élargissement silencieux de cette porte.
+          scanners: vuln
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          # Pas de `ignore-unfixed` : la spec parle de vulnérabilités présentes,
+          # pas de vulnérabilités corrigeables. Une CVE sans correctif amont
+          # reste une CVE dans l'image et doit se traiter par un changement
+          # d'image de base, pas par un filtre.
+          ignore-unfixed: false
+          exit-code: "1"
+
+      # Connexion seulement maintenant : un run dont l'image est vulnérable ne
+      # s'authentifie jamais auprès du registre.
+      - name: Se connecter à GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---------------------------------------------------------------------
+      # COÛT DU MULTI-ARCH — mesuré, à connaître avant de toucher à ce bloc.
+      #
+      # Les runners GitHub hébergés sont amd64 : `linux/arm64` est émulé par
+      # QEMU. Mesures à froid sur une machine 8 vCPU / 15 Go (un runner hébergé
+      # en a 2 ou 4 : compter un facteur 2 à 4 de plus) :
+      #
+      #   kadran-web      amd64 natif   41 s   ·   arm64 émulé    363 s  (~6 min)
+      #   kadran-backend  amd64 natif  110 s   ·   arm64 émulé   2219 s (~37 min)
+      #
+      # Détail du backend émulé : 1667 s sur `:app:dependencies` et 528 s sur
+      # `:app:bootJar`. Le poste dominant est donc la résolution des
+      # dépendances, pas la compilation.
+      #
+      # Piège de cache à connaître : le `RUN --mount=type=cache` qui porte
+      # `GRADLE_USER_HOME` dans `backend/Dockerfile` n'est PAS exporté par
+      # `type=gha` — les caches de montage ne font pas partie des couches. Sur
+      # un runner éphémère il démarre donc toujours vide. Si la couche
+      # `:app:dependencies` est un succès de cache (aucun `build.gradle.kts`
+      # modifié) mais que `:app:bootJar` doit se rejouer, c'est `bootJar` qui
+      # paie le retéléchargement complet.
+      #
+      # Pistes connues si le temps devient un problème, toutes hors périmètre
+      # de KDN-13 et à traiter par une issue dédiée : runner ARM natif ;
+      # découpage « build du JAR une fois en natif » puis « assemblage de
+      # l'image par architecture » (change le contrat de `backend/Dockerfile`) ;
+      # persistance des caches de montage entre runs.
+      # ---------------------------------------------------------------------
+      - name: Construire le multi-arch et publier sur GHCR
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            GIT_SOURCE=${{ github.server_url }}/${{ github.repository }}
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+          # SBOM attachée à l'image comme attestation OCI, et non déposée en
+          # artefact de run : un artefact expire, vit hors du registre et se
+          # dissocie de l'image qu'il décrit. L'attestation, elle, voyage avec
+          # le digest, est produite par plateforme, et reste interrogeable des
+          # années plus tard sans le run qui l'a créée :
+          #   docker buildx imagetools inspect <image>@<digest> \
+          #     --format '{{ json .SBOM }}'
+          # Format SPDX : celui que produit BuildKit, et le seul qui n'impose
+          # pas d'outillage tiers dans ce workflow.
+          sbom: true
+          # `mode=max` : la provenance embarque les sources et les arguments de
+          # build. Aucun secret n'y transite — les seuls `build-args` sont le
+          # SHA, l'URL du dépôt et l'horodatage.
+          provenance: mode=max
+
+      # Rattacher une image à son commit doit rester faisable depuis le run
+      # lui-même, sans aller interroger le registre.
+      # Les valeurs transitent par `env` et non par interpolation directe dans le
+      # script : une étiquette dérive d'un nom de tag Git, donc d'une chaîne que
+      # le workflow ne contrôle pas, et `${{ }}` dans un `run` la ferait
+      # interpréter par le shell.
+      - name: Résumer la publication
+        env:
+          IMAGE: ${{ matrix.image }}
+          COMMIT: ${{ github.sha }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          {
+            echo "### $IMAGE"
+            echo
+            echo "- commit : \`$COMMIT\`"
+            echo "- digest : \`$DIGEST\`"
+            echo "- étiquettes :"
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
