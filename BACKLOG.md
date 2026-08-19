@@ -74,7 +74,7 @@ Maquette : design/screens/<écran>/v<version>
 | KDN-17 | Classe abstraite paramétrée de test d'isolation multi-tenant | `backend` |
 | KDN-18 | Authentification JWT + refresh, Spring Security | `backend` |
 | KDN-19 | Écrans de connexion et d'inscription, gestion de session, garde de route | `frontend` |
-| KDN-121 | Observabilité backend : logs JSON structurés sans PII, MDC, `/actuator/prometheus` sur port de management séparé, conventions de nommage des métriques | `backend` |
+| KDN-121 | Observabilité backend : logs JSON structurés sans PII, MDC, `/actuator/prometheus` sur port de management séparé, conventions de nommage des métriques. **Déplacer Actuator sur le port de management casse le `HEALTHCHECK` de `backend/Dockerfile` (KDN-6), qui interroge le port applicatif : le corriger dans la même PR** | `backend` |
 | KDN-122 | Prometheus + Grafana dans `docker/compose.yml`, tableaux de bord versionnés dans `docker/grafana/` | `infra` |
 
 ---
