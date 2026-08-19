@@ -41,7 +41,10 @@ Toute nouvelle table métier porte `tenant_id UUID NOT NULL` en tête de ses ind
 
 ### 2.5 Toute mutation est auditée
 
-Chaque cas d'usage qui modifie l'état émet un événement d'audit via `@Audited`, dans la même transaction. Voir §8.4 de la spec pour le périmètre exact.
+Chaque cas d'usage qui modifie l'état écrit dans le journal des entités modifiées (`entity_change`), dans la même
+transaction. Les opérations sensibles — authentification, refus d'accès, lecture de PII, export, configuration —
+émettent en plus un événement d'audit via `@Audited`. Jamais par un trigger de base : un trigger ne connaît ni
+l'acteur ni le `correlation_id`. Voir §8.4 de la spec pour la répartition exacte.
 
 ### 2.6 La journée d'exploitation n'est pas la journée calendaire
 
