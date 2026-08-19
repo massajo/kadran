@@ -17,10 +17,14 @@ dependencies {
     implementation(project(":context-fiscal"))
     implementation(project(":context-performance"))
 
-    implementation("org.springframework.boot:spring-boot-starter-web")
+    // `spring-boot-starter-web` existe encore en 4.x mais y est deprecie : le nom ne disait
+    // pas s'il s'agissait de MVC ou de WebFlux. `-webmvc` est son remplacant explicite.
+    implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
-    implementation(libs.liquibase.core)
+    // Spring Boot 4 a sorti l'auto-configuration Liquibase du coeur : `liquibase-core` seul
+    // sur le classpath ne declenche plus rien, il faut son starter.
+    implementation("org.springframework.boot:spring-boot-starter-liquibase")
     runtimeOnly(libs.postgresql)
     // Redémarrage à chaud du contexte Spring en développement (docker/compose.yml, KDN-5) —
     // exclu du JAR de production par construction (`developmentOnly`), donc sans effet sur

@@ -3,18 +3,24 @@
 
 [versions]
 kotlin        = "2.2.0"
-springBoot    = "3.5.3"
+springBoot    = "4.1.0"
 springDepMgmt = "1.1.7"
 detekt        = "1.23.8"
 ktlint        = "14.2.0"
 archunit      = "1.5.0"
 kotest        = "6.2.4"
 mockk         = "1.14.11"
-# Persistance — versions alignees sur celles que pilote le BOM Spring Boot 3.5.3 :
+# Persistance — versions alignees sur celles que pilote le BOM Spring Boot 4.1.0 :
 # les declarer ici les rend visibles et diffables, sans creer d'ecart avec le BOM.
-postgresql    = "42.7.7"
-liquibase     = "4.31.1"
-testcontainers = "1.21.2"
+#
+# Seule exception assumee : le pilote PostgreSQL devance le BOM (qui epingle 42.7.11).
+# Le 42.7.11 embarque un `scram-client` vulnerable a CVE-2026-54291 — contournement de
+# la protection contre l'homme du milieu par retrogradation de SCRAM-SHA-256-PLUS — et
+# la porte Trivy de la spec §10.6 refuse toute HIGH. Montee de patch a l'interieur de
+# la meme mineure : a realigner sur le BOM des qu'il rattrape.
+postgresql    = "42.7.13"
+liquibase     = "5.0.3"
+testcontainers = "2.0.5"
 # Outillage Liquibase hors BOM : plugin Gradle et son analyseur de ligne de commande.
 liquibaseGradle = "3.1.0"
 picocli       = "4.7.7"
@@ -32,8 +38,10 @@ kotest-assertions = { module = "io.kotest:kotest-assertions-core",   version.ref
 kotest-property   = { module = "io.kotest:kotest-property",          version.ref = "kotest" }
 mockk             = { module = "io.mockk:mockk",                     version.ref = "mockk" }
 archunit-junit5   = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
-testcontainers-postgresql = { module = "org.testcontainers:postgresql",    version.ref = "testcontainers" }
-testcontainers-junit      = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
+# Testcontainers 2.x prefixe tous ses modules par `testcontainers-` : `org.testcontainers:postgresql`
+# et `org.testcontainers:junit-jupiter` n'existent plus sous leurs anciens noms.
+testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql",    version.ref = "testcontainers" }
+testcontainers-junit      = { module = "org.testcontainers:testcontainers-junit-jupiter", version.ref = "testcontainers" }
 
 # --- déclarées ici pour être appliquées depuis buildSrc ---
 kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }

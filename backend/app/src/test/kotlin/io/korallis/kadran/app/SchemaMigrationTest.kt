@@ -12,9 +12,9 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection
 import org.springframework.jdbc.core.JdbcTemplate
-import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
+import org.testcontainers.postgresql.PostgreSQLContainer
 import javax.sql.DataSource
 
 /**
@@ -74,9 +74,12 @@ class SchemaMigrationTest {
     private companion object {
         const val CHANGELOG = "db/changelog/db.changelog-master.xml"
 
+        // Testcontainers 2.x a deplace le conteneur dans `org.testcontainers.postgresql` et
+        // abandonne le parametre de type recursif : `PostgreSQLContainer<Nothing>` devient
+        // `PostgreSQLContainer`. L'ancienne classe existe encore, mais depreciee.
         @Container
         @ServiceConnection
         @JvmStatic
-        val postgres = PostgreSQLContainer<Nothing>("postgres:18-alpine")
+        val postgres = PostgreSQLContainer("postgres:18-alpine")
     }
 }
