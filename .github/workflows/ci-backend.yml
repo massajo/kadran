@@ -1,0 +1,73 @@
+name: CI Backend
+
+# Porte de qualité bloquante du back (spec §10.6, issue KDN-9).
+# Ne se déclenche que sur ce qui touche réellement le back, pour qu'une PR ne
+# modifiant que `web/` (ou tout autre répertoire du monorepo) n'attende pas ce
+# workflow.
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci-backend.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci-backend.yml"
+
+# Annule un run devenu obsolète si de nouveaux commits arrivent sur la même PR/branche.
+concurrency:
+  group: ci-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ktlint · detekt · tests · ArchUnit · JaCoCo
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer le JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Cache la distribution Gradle, le cache de dépendances et le cache de build.
+      # Valide aussi les sommes de contrôle du wrapper commité.
+      - name: Configurer Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # `check` enchaîne ktlint, detekt, les tests unitaires (Kotest), les tests
+      # ArchUnit et le seuil JaCoCo (bloquant sur les paquets `..domain..`
+      # uniquement, cf. buildSrc/kadran.context-conventions.gradle.kts).
+      #
+      # Aucun test Testcontainers n'existe encore dans le dépôt : aucune persistance
+      # n'a été livrée à ce jour. La commande les exécuterait néanmoins dès qu'ils
+      # seront ajoutés sous `src/test`, sans changement de ce workflow — les runners
+      # GitHub Actions hébergés fournissent un démon Docker accessible nativement à
+      # Testcontainers, sans service additionnel à déclarer ici.
+      - name: ./gradlew check
+        run: ./gradlew check --no-daemon --console=plain
+
+      - name: Publier les rapports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-reports
+          path: |
+            backend/**/build/reports/ktlint/**
+            backend/**/build/reports/detekt/**
+            backend/**/build/reports/tests/**
+            backend/**/build/reports/jacoco/**
+            backend/**/build/test-results/**
+          if-no-files-found: warn
+          retention-days: 14
