@@ -745,56 +745,125 @@ AES-256-GCM, enveloppe à deux niveaux : **DEK par tenant**, chiffrée par une K
 
 Rendu par défaut `M*** D***`, `91300 Massy`. Bascule « afficher en clair » : ré-authentification, expiration à 15 min, **journalisation systématique**.
 
-### 8.4 Audit trail — journal de toutes les opérations
+### 8.4 Audit — deux journaux, deux finalités
 
-Table append-only, partitionnée par mois.
+Un journal unique faisait porter à la traçabilité réglementaire le volume de l'historique
+métier. Le poids ne venait pas du nombre d'événements — modeste pour un chauffeur seul — mais
+des deux instantanés JSONB écrits à chaque mutation. D'où la séparation (ADR-012) :
+
+- **`entity_change` répond à « qu'est-ce qui a changé, et à quoi cela ressemblait avant ».**
+  Volumineux, purement métier, rétention pilotée par l'usage.
+- **`audit_event` répond à « qui a fait quoi, et qu'a-t-il vu ».** Étroit, réglementaire,
+  conservé cinq ans. Il enregistre notamment des **lectures**, qu'un journal d'entités ne peut
+  structurellement pas représenter.
+
+#### 8.4.1 `entity_change` — journal des entités modifiées
+
+```sql
+--changeset kadran:20260818_KDN-126_01 labels:audit context:all
+CREATE TABLE entity_change (
+    id             BIGSERIAL,
+    changed_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    tenant_id      UUID        NOT NULL,
+    actor_id       UUID,
+    actor_type     VARCHAR(24) NOT NULL,       -- USER | SYSTEM | JOB
+    entity_type    VARCHAR(64) NOT NULL,       -- Outing, RevenueRecord, CostModel…
+    entity_id      VARCHAR(64) NOT NULL,
+    operation      VARCHAR(8)  NOT NULL,       -- INSERT | UPDATE | DELETE
+    changes        JSONB       NOT NULL,       -- {"champ": {"before": …, "after": …}}
+    correlation_id UUID        NOT NULL
+) PARTITION BY RANGE (changed_at);
+
+CREATE INDEX ix_entity_change_tenant_entity
+    ON entity_change (tenant_id, entity_type, entity_id, changed_at DESC);
+--rollback DROP TABLE entity_change;
+```
+
+**`changes` ne contient que les champs effectivement modifiés**, pas deux instantanés complets.
+C'est là que se joue le volume : corriger le seul `purpose` d'une sortie écrit quelques dizaines
+d'octets, là où deux documents JSON entiers en écrivaient plusieurs kilo-octets.
+
+`tenant_id` est `NOT NULL` et ouvre l'index composite (§9.1, `CLAUDE.md` §2.3) : contrairement à
+`audit_event`, il n'existe pas de changement d'entité hors tenant.
+
+**Aucune donnée déchiffrée dans `changes`.** Les champs couverts par §8.2 y figurent sous leur
+forme chiffrée. Un journal de modifications qui stockerait en clair ce que la table d'origine
+chiffre annulerait le chiffrement au lieu de le compléter.
+
+#### 8.4.2 `audit_event` — journal des opérations
 
 ```sql
 --changeset kadran:20260818_KDN-21_01 labels:audit context:all
 CREATE TABLE audit_event (
-    id              BIGSERIAL,
-    occurred_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    tenant_id       UUID,                       -- null pour les événements hors tenant
-    actor_id        UUID,
-    actor_type      VARCHAR(24) NOT NULL,       -- USER | SYSTEM | JOB | ANONYMOUS
-    action          VARCHAR(64) NOT NULL,       -- ex. IMPORT_COMMITTED, COST_MODEL_UPDATED
-    entity_type     VARCHAR(64),
-    entity_id       VARCHAR(64),
-    outcome         VARCHAR(16) NOT NULL,       -- SUCCESS | FAILURE | DENIED
-    correlation_id  UUID NOT NULL,
-    ip_address      INET,
-    user_agent      TEXT,
-    payload_before  JSONB,
-    payload_after   JSONB,
-    metadata        JSONB NOT NULL DEFAULT '{}'::jsonb
+    id               BIGSERIAL,
+    occurred_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    tenant_id        UUID,                     -- null pour les événements hors tenant
+    actor_id         UUID,
+    actor_type       VARCHAR(24) NOT NULL,     -- USER | SYSTEM | JOB | ANONYMOUS
+    action           VARCHAR(64) NOT NULL,     -- ex. IMPORT_COMMITTED, PII_REVEALED
+    entity_type      VARCHAR(64),
+    entity_id        VARCHAR(64),
+    outcome          VARCHAR(16) NOT NULL,     -- SUCCESS | FAILURE | DENIED
+    correlation_id   UUID        NOT NULL,
+    ip_address       INET,
+    user_agent       TEXT,
+    entity_change_id BIGINT,                   -- renvoi vers le détail, sans le dupliquer
+    metadata         JSONB       NOT NULL DEFAULT '{}'::jsonb
 ) PARTITION BY RANGE (occurred_at);
 --rollback DROP TABLE audit_event;
 ```
 
-**Portée — tout est journalisé :**
+`entity_change_id` est un **renvoi logique, sans contrainte d'intégrité référentielle** : les deux
+tables sont partitionnées et purgées à des rythmes différents, et une clé étrangère ferait échouer
+le détachement d'une partition d'`entity_change` encore citée par un événement conservé plus
+longtemps.
 
-| Catégorie | Exemples |
+#### 8.4.3 Répartition des catégories
+
+**Règle : `entity_change` dit ce qui a changé, `audit_event` dit ce qui a été fait.**
+
+| Catégorie | Journal |
 |---|---|
-| Authentification | connexion, échec, déconnexion, rafraîchissement de jeton, changement de mot de passe |
-| Autorisation | tout refus d'accès (`DENIED`), toute tentative de lecture cross-tenant |
-| Données métier | création / modification / suppression de `Outing`, `RevenueRecord`, `CostModel`, `FiscalProfile`, `Vehicle` |
-| Imports | upload, parsing, mapping appliqué, résolution manuelle, commit, rejeu, échec |
-| PII | tout affichage en clair, tout export contenant de la PII |
-| Configuration | changement de profil de mapping, de taux de provision, d'option de tenant |
-| Cycle de vie tenant | création, invitation, changement de rôle, suppression |
-| Exports | toute génération de fichier, avec périmètre et période |
+| Authentification — connexion, échec, déconnexion, rafraîchissement, changement de mot de passe | `audit_event` |
+| Autorisation — tout `DENIED`, toute tentative de lecture cross-tenant | `audit_event` |
+| Données métier — `Outing`, `RevenueRecord`, `CostModel`, `FiscalProfile`, `Vehicle` | **`entity_change` seul** |
+| Imports | `audit_event` pour le lot (upload, mapping, commit, rejeu, échec) · `entity_change` pour chaque enregistrement produit |
+| PII — tout affichage en clair, tout export en contenant | `audit_event` |
+| Configuration — profil de mapping, taux de provision, option de tenant | les deux |
+| Cycle de vie tenant — création, invitation, changement de rôle, suppression | les deux |
+| Exports — toute génération de fichier, avec périmètre et période | `audit_event` |
 
-**Garanties d'intégrité :**
-- Le rôle applicatif n'a que `INSERT` et `SELECT` sur `audit_event`. `UPDATE` et `DELETE` sont révoqués — l'immuabilité est garantie par la base, pas par le code.
-- `correlation_id` propagé via MDC depuis un filtre servlet, présent dans les logs applicatifs et dans chaque événement d'audit : une requête utilisateur se reconstitue de bout en bout.
-- Écriture dans la **même transaction** que l'opération métier pour les mutations, afin qu'un rollback métier n'orpheline pas d'entrée d'audit. Les événements de lecture PII sont écrits hors transaction.
-- Rétention : 5 ans (alignée sur les obligations de conservation), purge par détachement de partition.
+La ligne qui porte le volume — les données métier — n'écrit plus que dans le journal étroit. Les
+catégories restées dans `audit_event` sont, elles, peu fréquentes par nature.
 
-**Implémentation :** annotation `@Audited(action = "...")` interceptée par AOP en couche `application`, complétée par les événements de domaine. Ne jamais auditer depuis la couche `infrastructure` : le contexte métier y est perdu.
+#### 8.4.4 Garanties d'intégrité
 
-**Écran :** journal consultable par le propriétaire du tenant, filtrable par date, acteur et action. C'est à la fois une exigence RGPD et un argument de confiance.
+- Le rôle applicatif n'a que `INSERT` et `SELECT` sur **les deux** tables. `UPDATE` et `DELETE`
+  sont révoqués — l'immuabilité est garantie par la base, pas par le code.
+- `correlation_id` propagé via MDC depuis le filtre servlet (§10.7.1), présent dans les logs
+  applicatifs et dans chaque ligne des deux journaux : une requête utilisateur se reconstitue de
+  bout en bout, du log d'accès jusqu'au champ modifié.
+- Écriture dans la **même transaction** que l'opération métier pour les mutations, afin qu'un
+  rollback métier n'orpheline pas d'entrée. Les événements de lecture PII sont écrits hors
+  transaction.
+- **Rétention distincte** : `audit_event` cinq ans, aligné sur les obligations de conservation ;
+  `entity_change` configurable et plus courte, son intérêt étant opérationnel et non probatoire
+  (voir D8). Purge par détachement de partition dans les deux cas.
 
-> L'audit trail prend une importance particulière depuis l'abandon du RLS (§9.1) : il devient le contrôle **détectif** qui compense la perte du contrôle **préventif** au niveau base.
+**Implémentation :** annotation `@Audited(action = "...")` interceptée par AOP en couche
+`application` pour `audit_event`, et calcul du diff au même endroit pour `entity_change`.
+**Jamais par un trigger de base** : un trigger ne connaît ni l'acteur, ni le `correlation_id`, ni
+l'intention métier — il verrait passer un `UPDATE` sans savoir s'il vient d'une correction
+manuelle ou d'un rejeu d'import.
+
+**Écran :** journal consultable par le propriétaire du tenant, filtrable par date, acteur et
+action, et **historique par entité** — « qu'est-ce qui a changé sur cette sortie, et quand ». À la
+fois une exigence RGPD et un argument de confiance.
+
+> L'audit prend une importance particulière depuis l'abandon du RLS (§9.1) : il devient le
+> contrôle **détectif** qui compense la perte du contrôle **préventif** au niveau base. C'est
+> `audit_event`, et lui seul, qui porte ce rôle — une tentative de lecture cross-tenant ne modifie
+> aucune entité et n'apparaîtrait dans aucun journal de changements.
 
 ---
 
@@ -1347,6 +1416,7 @@ Les issues `[spike]` portent le label `needs-sample` et sont **bloquantes** dans
 | ADR-009 | `Amplitude` typée `Observed` / `Floor`, jamais un chiffre nu (§3.7) | **Acté** |
 | ADR-010 | **Monorepo** back + front + design + docs (§10.6). Motif principal : `ci-openapi` vérifie dans une même PR que les types front correspondent au contrat back. Choix réversible — extraire `web/` reste peu coûteux, fusionner deux dépôts ne l'est pas | **Acté** |
 | ADR-011 | **Observabilité** : logs JSON structurés sans PII, métriques Prometheus **sans dimension `tenant_id`**, port de management séparé, audit distinct des logs (§10.7) | **Acté** |
+| ADR-012 | **Audit scinde en deux journaux** : `entity_change` pour l'historique metier (diff par champ), `audit_event` pour la tracabilite reglementaire, y compris les lectures (§8.4) | **Acté** |
 | D1 | Les colonnes `Début`/`Fin` de Driversnote portent-elles une heure ? | **Bloquant — KDN-37** |
 | D2 | L'export Bolt *Trips* contient-il la distance et les horaires par course ? | Ouvert — KDN-48 |
 | D3 | Référentiel de coûts sectoriels par défaut | À constituer |
@@ -1354,3 +1424,4 @@ Les issues `[spike]` portent le label `needs-sample` et sont **bloquantes** dans
 | D5 | Application mobile | PWA en v1.5 |
 | D6 | Modèle tarifaire | Abonnement unique. Pas de freemium sur les métriques : c'est le produit |
 | D7 | Nom | Kadran — à valider INPI et disponibilité de domaine |
+| D8 | Rétention d'`entity_change` — plus courte que les 5 ans d'`audit_event`, à fixer selon l'usage réel de l'historique | Ouvert — KDN-24 |

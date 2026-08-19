@@ -84,11 +84,12 @@ Maquette : design/screens/<écran>/v<version>
 
 | # | Issue | Domaine |
 |---|---|---|
-| KDN-21 | Table `audit_event` partitionnée par mois, `INSERT`/`SELECT` seuls pour le rôle applicatif | `backend` |
-| KDN-22 | Annotation `@Audited` et aspect en couche `application` | `backend` |
-| KDN-23 | Couverture des catégories §8.4 : auth, autorisation, métier, imports, PII, configuration, exports | `backend` |
-| KDN-24 | Purge par détachement de partition, rétention 5 ans configurable | `backend` |
-| KDN-25 | Écran Journal : table filtrable par acteur, action, date | `frontend` |
+| KDN-126 | Table `entity_change` partitionnée par mois : diff par champ, `tenant_id NOT NULL` en tête d'index, aucune donnée déchiffrée | `backend` |
+| KDN-21 | Table `audit_event` allégée et partitionnée par mois, `INSERT`/`SELECT` seuls pour le rôle applicatif | `backend` |
+| KDN-22 | Annotation `@Audited` et aspect en couche `application`, alimentant les deux journaux — jamais par trigger de base | `backend` |
+| KDN-23 | Couverture des catégories §8.4.3 et leur répartition entre les deux journaux | `backend` |
+| KDN-24 | Purge par détachement de partition : 5 ans pour `audit_event`, rétention distincte et plus courte pour `entity_change` (D8) | `backend` |
+| KDN-25 | Écran Journal : table filtrable par acteur, action, date, et historique par entité | `frontend` |
 
 ---
 
