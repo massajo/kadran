@@ -22,6 +22,10 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation(libs.liquibase.core)
     runtimeOnly(libs.postgresql)
+    // Redémarrage à chaud du contexte Spring en développement (docker/compose.yml, KDN-5) —
+    // exclu du JAR de production par construction (`developmentOnly`), donc sans effet sur
+    // l'image de KDN-6.
+    developmentOnly("org.springframework.boot:spring-boot-devtools")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")

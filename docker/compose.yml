@@ -1,0 +1,240 @@
+# Compose de développement — spec §10.6 dernier paragraphe : « Une seule commande doit
+# suffire à démarrer l'ensemble ; c'est la condition pour que Claude Code puisse valider
+# son travail. »
+#
+#   docker compose -f docker/compose.yml up -d
+#
+# Hors périmètre ici (KDN-5) : Prometheus et Grafana, mentionnés au même paragraphe de
+# la spec, relèvent de KDN-122 — une issue séparée (CLAUDE.md §4, « une issue = une PR =
+# une intention »).
+#
+# --- Rechargement à chaud : pourquoi ces services NE construisent PAS `backend/Dockerfile`
+# --- ni `web/Dockerfile` ------------------------------------------------------------------
+# Les deux Dockerfiles (KDN-6, KDN-7) produisent des images de PRODUCTION : JAR Spring Boot
+# en couches sans code source ni toolchain de build, sortie Next.js `standalone` sans
+# `node_modules` de dev. Aucune des deux ne contient de code qu'on puisse éditer à chaud, et
+# les dénaturer pour y injecter un mode dev (source montée, `next dev`) les éloignerait de ce
+# qu'elles doivent rester : le même artefact que celui poussé sur GHCR par `build-images.yml`.
+# Réutiliser leur étage intermédiaire `build` n'aiderait pas non plus : `--mount=type=cache`
+# (BuildKit) n'est jamais commité dans une couche d'image, donc l'étage `build` ne contient
+# pas de cache Gradle chaud — le monter en dev n'apporterait rien de plus qu'une image JDK
+# nue, tout en couplant ce fichier à la structure interne d'un Dockerfile qu'on nous interdit
+# de toucher.
+#
+# On part donc des images de base (mêmes tags que celles utilisées par les Dockerfiles de
+# production, pour ne pas faire dériver les versions), avec le code monté en volume :
+#   - backend : `./gradlew classes --continuous` en arrière-plan (recompile dès qu'un fichier
+#     source change — cette tâche SE TERMINE à chaque recompilation, donc le mode continu de
+#     Gradle peut effectivement la redéclencher) + `./gradlew :app:bootRun` au premier plan.
+#     `bootRun`, lui, ne se termine jamais tant que l'application tourne : associé seul à
+#     `--continuous`, Gradle ne rend jamais la main entre deux builds et ne redéclenche donc
+#     jamais rien — testé, ça ne fonctionne pas. `spring-boot-devtools` (developmentOnly dans
+#     `backend/app/build.gradle.kts`, donc absent du JAR de production packagé par KDN-6) est
+#     ce qui referme la boucle : son détecteur de classpath surveille les répertoires de
+#     classes compilées et redémarre le contexte Spring dès que `classes --continuous` les
+#     met à jour, sans reconstruction d'image ni intervention manuelle. Un `./gradlew classes`
+#     synchrone précède les deux (testé sans lui : sur un cache Gradle froid, les deux
+#     invocations démarrées en même temps se disputent le verrou `buildLogic` le temps de
+#     compiler `buildSrc`, la seconde échoue avec « Timeout waiting to lock build logic
+#     queue »). Une fois ce build unique passé, `buildSrc` est en cache et les deux
+#     invocations suivantes ne font plus que le vérifier — bien plus court que le délai
+#     d'attente par défaut du verrou. `bootRun` est en outre enveloppé dans une boucle de
+#     nouvelles tentatives bornée, filet de sécurité si la contention se reproduisait malgré
+#     tout.
+#   - web : `next dev` (Fast Refresh natif de Next.js), invoqué directement plutôt que via le
+#     script `dev` du `package.json` pour pouvoir forcer `--hostname 0.0.0.0` : par défaut
+#     `next dev` n'écoute que sur `localhost`, injoignable depuis l'hôte à travers la
+#     publication de port du conteneur.
+#
+# Les caches (Gradle, pnpm) vivent dans des volumes nommés, hors de tout bind-mount : ils
+# survivent à un `down` sans jamais toucher l'arbre source de l'hôte, et un `down -v` les
+# purge proprement pour repartir à neuf.
+#
+# --- Propriété des fichiers : pourquoi `backend` et `web` basculent vers un utilisateur non
+# --- root avant de lancer quoi que ce soit -------------------------------------------------
+# Ces deux services écrivent dans l'arbre source bind-monté : cache Gradle et Kotlin du
+# projet, `*/build/`, `node_modules`, `.next`, `next-env.d.ts`. Par défaut Docker exécute un
+# conteneur en `root`, donc tout ce qui est écrit là devient root:root sur l'hôte — constaté
+# en revue : plusieurs milliers d'entrées, `./gradlew :app:bootJar` cassé ensuite depuis la
+# machine du développeur (`Permission denied` sur un fichier de verrou Gradle), impossible
+# même à nettoyer sans les droits root. C'est l'inverse de l'objectif de la spec §10.6 (« une
+# seule commande doit suffire », y compris pour que Claude Code puisse valider son travail
+# après coup).
+#
+# `docker/run-as-host-user.sh` (monté dans les deux conteneurs) résout un uid/gid cible
+# (`HOST_UID`/`HOST_GID`, défaut 1000:1000 — le premier utilisateur sur la quasi-totalité des
+# postes Linux ; à surcharger via `HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose ... up`
+# si le développeur n'a pas cet uid), réutilise l'utilisateur déjà présent à cet uid/gid s'il
+# existe (`node` sur `node:22-alpine`), sinon en crée un, chowne les caches montés en volume
+# nommé (root:root par défaut chez Docker au premier usage, quel que soit l'utilisateur final
+# du conteneur), exécute l'éventuelle étape qui a vraiment besoin de root (`corepack enable`,
+# qui écrit sous `/usr/local/bin`, jamais dans l'arbre source), puis lance la commande de
+# développement sous cet utilisateur. Alternative écartée : router `*/build/`, `.gradle/`,
+# `.kotlin/`, `node_modules`, `.next` vers des volumes nommés plutôt que de changer
+# d'utilisateur — mais un volume nommé monté à l'intérieur d'un chemin bind-monté force Docker
+# à créer le point de montage sur le système de fichiers hôte, et ce point de montage est lui
+# aussi root:root (vérifié : `touch` dedans échoue en tant qu'utilisateur non-root, exactement
+# le même verrou qu'on cherche à éviter) — ça ne fait que déplacer le problème vers un
+# répertoire vide plutôt que de le résoudre.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      # Alignés sur les défauts de développement d'`application.yaml` (KDN-14) :
+      # qui démarre ce compose n'a rien à configurer côté backend.
+      POSTGRES_DB: kadran
+      POSTGRES_USER: kadran
+      POSTGRES_PASSWORD: kadran
+    ports:
+      - "5432:5432"
+    volumes:
+      # PostgreSQL 18 a changé la disposition attendue du point de montage : l'image
+      # officielle place désormais les données dans une sous-arborescence versionnée
+      # sous `/var/lib/postgresql` (et non plus directement dans un `.../data` monté),
+      # pour permettre `pg_upgrade --link` sans franchir de frontière de point de montage.
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kadran -d kadran"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    environment:
+      # Identifiants de développement uniquement — jamais utilisés hors de ce compose.
+      MINIO_ROOT_USER: kadran
+      MINIO_ROOT_PASSWORD: kadran-dev-only
+    ports:
+      - "9000:9000" # API S3
+      - "9001:9001" # Console web
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Job à usage unique : crée le bucket de développement puis se termine (code 0).
+  # Le contexte `ingestion` (KDN-62, « stockage des fichiers sources sur S3/MinIO »)
+  # n'existe pas encore : ce service fournit seulement de quoi s'y brancher, sans
+  # anticiper un nom de bucket ou une politique que ce contexte n'a pas encore fixés.
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+        mc alias set local http://minio:9000 kadran kadran-dev-only &&
+        mc mb --ignore-existing local/kadran-imports
+      "
+    restart: "no"
+
+  backend:
+    image: eclipse-temurin:21-jdk-alpine
+    working_dir: /workspace
+    volumes:
+      - ../backend:/workspace
+      - ../docker/run-as-host-user.sh:/opt/run-as-host-user.sh:ro
+      # Cache Gradle (GRADLE_USER_HOME) : chemin fixe hors de tout bind-mount, voir le
+      # commentaire en tête de fichier.
+      - backend_gradle_home:/cache/gradle
+    command:
+      - sh
+      - /opt/run-as-host-user.sh
+      - /cache/gradle
+      - ""
+      - ""
+      - >-
+        cd /workspace &&
+        ./gradlew --no-daemon classes;
+        ./gradlew --no-daemon classes --continuous &
+        i=0;
+        until ./gradlew --no-daemon :app:bootRun; do
+        i=$$((i+1));
+        if [ "$$i" -ge 10 ]; then echo 'bootRun: echec definitif apres 10 tentatives' >&2; exit 1; fi;
+        echo "bootRun: nouvel essai ($$i/10) - conflit probable de verrou Gradle avec classes --continuous au demarrage" >&2;
+        sleep 5;
+        done
+    environment:
+      HOST_UID: "${HOST_UID:-1000}"
+      HOST_GID: "${HOST_GID:-1000}"
+      GRADLE_USER_HOME: /cache/gradle
+      # Le backend rejoint `postgres` par nom de service sur le réseau du compose ;
+      # le reste reprend les défauts de développement d'`application.yaml` (KDN-14).
+      KADRAN_DB_URL: jdbc:postgresql://postgres:5432/kadran
+      KADRAN_DB_USER: kadran
+      KADRAN_DB_PASSWORD: kadran
+    ports:
+      - "8080:8080"
+    depends_on:
+      # Liquibase s'exécute au démarrage de l'application (CLAUDE.md) : `service_healthy`,
+      # pas un `depends_on` nu qui ne garantirait que le conteneur Postgres a démarré, pas
+      # que le serveur y accepte déjà des connexions.
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Même sonde que `backend/Dockerfile` (KDN-6) : `wget` BusyBox, présent sur l'image
+      # Alpine du stage de build comme sur celle du runtime.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # Généreux : premier démarrage = téléchargement des dépendances Gradle (aucun cache
+      # chaud disponible, cf. commentaire en tête de fichier) + compilation complète.
+      start_period: 180s
+
+  web:
+    image: node:22-alpine
+    working_dir: /repo
+    environment:
+      # Même bascule que `web/Dockerfile` (KDN-7) : la clé de signature pnpm embarquée
+      # dans l'image `node:22-alpine` est périmée.
+      COREPACK_INTEGRITY_KEYS: "0"
+      NEXT_TELEMETRY_DISABLED: "1"
+      HOST_UID: "${HOST_UID:-1000}"
+      HOST_GID: "${HOST_GID:-1000}"
+    volumes:
+      # Contexte pnpm minimal, à l'identique de celui que `web/Dockerfile` construit à la
+      # racine du monorepo (workspace pnpm oblige) — pas le dépôt entier.
+      - ../package.json:/repo/package.json:ro
+      - ../pnpm-workspace.yaml:/repo/pnpm-workspace.yaml:ro
+      - ../pnpm-lock.yaml:/repo/pnpm-lock.yaml:ro
+      - ../.npmrc:/repo/.npmrc:ro
+      - ../web:/repo/web
+      - ../docker/run-as-host-user.sh:/opt/run-as-host-user.sh:ro
+      # Store pnpm : chemin fixe hors de tout bind-mount, voir le commentaire en tête de
+      # fichier — `node_modules` et `.next`, eux, restent dans l'arbre bind-monté (`/repo/web`)
+      # et sont donc écrits directement avec la bonne propriété par le processus non-root.
+      - web_pnpm_store:/cache/pnpm
+    command:
+      - sh
+      - /opt/run-as-host-user.sh
+      - /cache/pnpm
+      - /repo
+      - corepack enable
+      - >-
+        cd /repo &&
+        pnpm install --frozen-lockfile --store-dir /cache/pnpm &&
+        cd web &&
+        pnpm exec next dev --hostname 0.0.0.0 --port 3000
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get({host:'127.0.0.1',port:3000,path:'/'},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+volumes:
+  postgres_data:
+  minio_data:
+  backend_gradle_home:
+  web_pnpm_store:
