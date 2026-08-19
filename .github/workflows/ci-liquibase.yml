@@ -1,0 +1,132 @@
+name: ci-liquibase
+
+# Porte de qualité bloquante sur les migrations — spec §10.6, issue KDN-11.
+# Vérifie qu'`update` s'applique proprement sur un Postgres éphémère, puis que
+# `rollbackCount` défait sans erreur les changesets ajoutés par la PR : c'est la
+# garantie « rollback Liquibase vérifié » listée parmi les portes bloquantes.
+#
+# Déclencheurs : la spec ne cite que `backend/**/changelog/**`, mais la
+# configuration qui détermine comment Gradle parle à Liquibase vit ailleurs et
+# peut casser ce pipeline sans qu'aucun changelog ne bouge (KDN-14 l'a montré) :
+#   - backend/app/build.gradle.kts     → bloc `liquibase { activities }`
+#   - backend/gradle.properties        → `liquibaseTaskPrefix`, qui nomme les tâches
+#   - backend/buildSrc/build.gradle.kts→ liquibase-core sur le classpath de build
+#   - backend/gradle/libs.versions.toml→ versions de liquibase-core / postgresql / picocli
+# Un changement sur l'un de ces fichiers déclenche donc aussi ce workflow, même
+# sans changeset ajouté — dans ce cas `update` seul suffit à prouver que le
+# câblage n'est pas cassé, et l'étape de rollback est sautée faute de changeset
+# nouveau à défaire (cf. l'étape « Compter les changesets ajoutés »).
+#
+# Contrairement à `ci-backend.yml`, pas de déclencheur `push` : la spec ne liste
+# que `PR` pour ce workflow, et un rollback vérifié sur `main` n'apporte rien de
+# plus que ce que la PR fusionnée a déjà prouvé.
+on:
+  pull_request:
+    paths:
+      - "backend/**/changelog/**"
+      - "backend/app/build.gradle.kts"
+      - "backend/gradle.properties"
+      - "backend/buildSrc/build.gradle.kts"
+      - "backend/gradle/libs.versions.toml"
+      - ".github/workflows/ci-liquibase.yml"
+
+concurrency:
+  group: ci-liquibase-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  liquibase:
+    name: liquibase update · rollbackCount
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      # Postgres 18, comme le reste du dépôt (docker/compose.yml, spec §10.6).
+      # Identifiants alignés sur les valeurs par défaut d'application.yaml et de
+      # `liquibase { activities }` (backend/app/build.gradle.kts) : aucune variable
+      # KADRAN_DB_* à fournir, la base éphémère se comporte comme la base de dev.
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: kadran
+          POSTGRES_USER: kadran
+          POSTGRES_PASSWORD: kadran
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kadran -d kadran"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+        with:
+          # Historique complet : la base et la tête de la PR doivent toutes deux
+          # être présentes pour compter les changesets réellement ajoutés (étape
+          # suivante), comme le fait déjà commitlint.yml pour un besoin similaire.
+          fetch-depth: 0
+
+      - name: Installer le JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Configurer Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # `rollbackCount 1` ne défait que le dernier changeset appliqué. La commande
+      # documentée dans CLAUDE.md §5 (`-PliquibaseCommandValue=1`) convient pour un
+      # usage local ponctuel, mais figée telle quelle en CI elle ne prouverait le
+      # rollback que d'un changeset sur N si la PR en ajoute plusieurs — la porte
+      # « rollback Liquibase vérifié » annoncerait une garantie qu'elle ne tient
+      # pas. On calcule donc ici le nombre réel de changesets ajoutés ou modifiés
+      # par la PR sous `changelog/`, en comptant les lignes `--changeset` : c'est
+      # ce nombre, et non 1 en dur, qui est passé à `liquibaseRollbackCount`.
+      # Les changesets fusionnés ne sont jamais modifiés (CLAUDE.md §6) : compter
+      # aussi les fichiers modifiés est une marge de sécurité, pas le cas nominal.
+      - name: Compter les changesets ajoutés par la PR
+        id: changesets
+        run: |
+          set -euo pipefail
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}" \
+            -- 'backend/**/changelog/**')
+
+          COUNT=0
+          for f in $CHANGED_FILES; do
+            if [ -f "$f" ]; then
+              N=$(grep -c '^--changeset' "$f" || true)
+              COUNT=$((COUNT + N))
+            fi
+          done
+
+          echo "Changesets ajoutés/modifiés par la PR : $COUNT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: ./gradlew liquibaseUpdate
+        run: ./gradlew liquibaseUpdate --no-daemon --console=plain
+
+      # Sautée quand la PR n'ajoute aucun changeset (déclenchement sur la
+      # configuration Gradle/Liquibase seule, cf. commentaire de `on:` en tête de
+      # fichier) : `update` a déjà prouvé que le câblage fonctionne, et il n'y a
+      # rien de nouveau dont vérifier le rollback.
+      - name: ./gradlew liquibaseRollbackCount
+        if: steps.changesets.outputs.count != '0'
+        run: >
+          ./gradlew liquibaseRollbackCount
+          -PliquibaseCommandValue=${{ steps.changesets.outputs.count }}
+          --no-daemon --console=plain
+
+      - name: Aucun changeset nouveau — rollback non applicable
+        if: steps.changesets.outputs.count == '0'
+        run: >
+          echo "Aucun changeset ajouté ou modifié par cette PR — étape de rollback sautée."
