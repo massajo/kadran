@@ -45,6 +45,13 @@ RUN mkdir -p web/public && pnpm --filter web build
 
 # --- Runtime : uniquement ce que `standalone` a élagué, en non-root ---
 FROM node:22-alpine AS runner
+# npm et corepack sont embarqués dans l'image de base `node:22-alpine`, mais
+# le runtime `standalone` lance directement `node web/server.js` et n'invoque
+# jamais npm ni corepack. Ce sont eux qui portaient les 7 HIGH / 1 CRITICAL
+# du scan Trivy (KDN-128) : on supprime le code vulnérable plutôt que de le
+# masquer au scanner.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 # `adduser --system` seul (BusyBox) rattache l'utilisateur à `nogroup`, pas au
 # groupe créé : `-G` est nécessaire pour que le groupe primaire soit `nodejs`.
 RUN addgroup --system --gid 1001 nodejs \
