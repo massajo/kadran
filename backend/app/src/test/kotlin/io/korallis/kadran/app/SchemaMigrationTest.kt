@@ -77,6 +77,6 @@ class SchemaMigrationTest {
         @Container
         @ServiceConnection
         @JvmStatic
-        val postgres = PostgreSQLContainer<Nothing>("postgres:16-alpine")
+        val postgres = PostgreSQLContainer<Nothing>("postgres:18-alpine")
     }
 }
