@@ -1038,7 +1038,7 @@ ghcr.io/<org>/kadran-web:{sha|semver|latest}
 - Étiquetage OCI complet (`org.opencontainers.image.revision`, `.source`, `.created`) : une image doit toujours pouvoir être rattachée à son commit.
 - Aucun secret dans une image. Toute configuration par variable d'environnement.
 
-**Développement local** — `docker/compose.yml` : PostgreSQL 16, MinIO, backend, web, Prometheus et Grafana (§10.7.5), avec rechargement à chaud. Une seule commande doit suffire à démarrer l'ensemble ; c'est la condition pour que Claude Code puisse valider son travail.
+**Développement local** — `docker/compose.yml` : PostgreSQL 18, MinIO, backend, web, Prometheus et Grafana (§10.7.5), avec rechargement à chaud. Une seule commande doit suffire à démarrer l'ensemble ; c'est la condition pour que Claude Code puisse valider son travail.
 
 ### 10.7 Observabilité
 
