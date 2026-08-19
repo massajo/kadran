@@ -21,6 +21,17 @@ dependencies {
     // pas s'il s'agissait de MVC ou de WebFlux. `-webmvc` est son remplacant explicite.
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // Registre Prometheus en collecte *pull* (spec §10.7.2). L'auto-configuration vit dans
+    // `spring-boot-micrometer-metrics`, que `starter-actuator` amene deja ; seul le registre
+    // manque, et c'est lui qui declenche l'endpoint `/actuator/prometheus`.
+    implementation("io.micrometer:micrometer-registry-prometheus")
+    // Micrometer Tracing, pont OpenTelemetry (spec §10.7.3) : l'instrumentation et la
+    // propagation W3C sont en place, **l'exportation ne l'est pas**. Aucun exporteur OTLP
+    // n'est declare tant qu'aucun collecteur n'existe.
+    implementation("org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry")
+    // Le module ci-dessus n'apporte que l'auto-configuration ; elle est conditionnee a
+    // `io.micrometer.tracing.otel.bridge.OtelTracer`, qui vit dans le pont.
+    implementation("io.micrometer:micrometer-tracing-bridge-otel")
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     // Spring Boot 4 a sorti l'auto-configuration Liquibase du coeur : `liquibase-core` seul
     // sur le classpath ne declenche plus rien, il faut son starter.

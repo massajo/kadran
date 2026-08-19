@@ -97,14 +97,29 @@ COPY --from=build --chown=kadran:kadran /workspace/extracted/spring-boot-loader/
 COPY --from=build --chown=kadran:kadran /workspace/extracted/snapshot-dependencies/ ./
 COPY --from=build --chown=kadran:kadran /workspace/extracted/application/ ./
 
+# `MANAGEMENT_SERVER_PORT` fixe `management.server.port` par liaison relachee, comme
+# `SERVER_PORT` le fait pour `server.port` : les deux valeurs restent celles
+# d'`application.yaml`, redeclarees ici parce que le HEALTHCHECK ci-dessous les lit.
 ENV JAVA_TOOL_OPTIONS="-XX:+UseContainerSupport" \
-    SERVER_PORT=8080
+    SERVER_PORT=8080 \
+    MANAGEMENT_SERVER_PORT=8081
 
+# Seul le port applicatif est publie. Le port de management n'est deliberement pas expose :
+# `/actuator/prometheus` publie la topologie interne et n'est joignable que par le
+# collecteur, sur le reseau interne (spec §10.7.2). La sonde ci-dessous tourne *dans* le
+# conteneur, elle n'a donc besoin d'aucune publication.
 EXPOSE 8080
 USER kadran
 
+# Actuator vit desormais sur le port de management (KDN-124) : interroger `/actuator/health`
+# sur ${SERVER_PORT} rapporterait le conteneur sain des que le 8080 repond, meme sans
+# Actuator dessus — une sonde qui ne mesure plus rien est pire qu'une sonde absente.
+#
+# `readiness` plutot que la sante agregee : c'est la question que pose Docker — ce conteneur
+# peut-il servir du trafic ? Elle depend de la base (spec §10.7.4), la `liveness` non.
+#
 # `wget` (BusyBox) est présent dans la base alpine : pas besoin de curl.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-  CMD wget -q -O /dev/null "http://127.0.0.1:${SERVER_PORT}/actuator/health" || exit 1
+  CMD wget -q -O /dev/null "http://127.0.0.1:${MANAGEMENT_SERVER_PORT}/actuator/health/readiness" || exit 1
 
 ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
