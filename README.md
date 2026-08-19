@@ -27,7 +27,7 @@ Monorepo (ADR-010) — le back, le front, les maquettes et la doc dans un seul d
 même PR vérifie que les types du front correspondent au contrat OpenAPI du back.
 
 ```
-backend/            Gradle multi-modules, Kotlin 2.1 / Spring Boot 3.4
+backend/            Gradle multi-modules, Kotlin 2.2 / Spring Boot 4.1 — racine de construction
   shared-kernel/      value objects (Money, Ratio, Distance…) — zéro dépendance Spring
   platform/           tenancy, sécurité, chiffrement, audit, outbox
   context-<nom>/      un contexte borné : domain/{model,api,spi} · application · infrastructure/{api,spi}
@@ -45,11 +45,14 @@ La convention s'applique symétriquement aux ports (`domain/`) et aux adaptateur
 ## Démarrer
 
 > ⚠️ Le socle technique est en cours de construction — EPIC KDN-1. Les commandes ci-dessous
-> deviennent effectives au fil des issues KDN-3 à KDN-14 et ne fonctionnent pas encore.
+> fonctionnent ; il n'y a simplement pas encore de fonctionnalité métier derrière.
 
 ```bash
-docker compose -f docker/compose.yml up -d   # Postgres, MinIO, backend, web
+docker compose -f docker/compose.yml up -d   # Postgres, MinIO, backend, web, rechargement à chaud
 
+# La racine de construction Gradle est `backend/`, pas la racine du dépôt :
+# il n'existe pas de `gradlew` ici.
+cd backend
 ./gradlew check                              # ktlint, detekt, tests, ArchUnit, couverture
 ./gradlew :app:bootRun
 
