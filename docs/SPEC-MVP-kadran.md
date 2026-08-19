@@ -934,7 +934,7 @@ Règle ArchUnit : `domain` ne dépend que de `shared-kernel` et de la stdlib ; `
 | Chiffrement | Tink ou JCA AES-GCM | §8.2 |
 | Audit | AOP `@Audited` + événements de domaine | §8.4 |
 | Auth | JWT + refresh, Spring Security | — |
-| Observabilité | Micrometer + OpenTelemetry, `correlation_id` en MDC | taux d'échec de parsing par profil |
+| Observabilité | Logs JSON structurés, Micrometer + registre Prometheus, Micrometer Tracing | §10.7 |
 | Tests | JUnit 5, Kotest, **MockK**, Testcontainers, ArchUnit | §10.4 |
 
 **Versions de la chaîne de construction** — figées sur ce qui est effectivement livré par KDN-3,
@@ -1038,7 +1038,96 @@ ghcr.io/<org>/kadran-web:{sha|semver|latest}
 - Étiquetage OCI complet (`org.opencontainers.image.revision`, `.source`, `.created`) : une image doit toujours pouvoir être rattachée à son commit.
 - Aucun secret dans une image. Toute configuration par variable d'environnement.
 
-**Développement local** — `docker/compose.yml` : PostgreSQL 16, MinIO, backend, web, avec rechargement à chaud. Une seule commande doit suffire à démarrer l'ensemble ; c'est la condition pour que Claude Code puisse valider son travail.
+**Développement local** — `docker/compose.yml` : PostgreSQL 18, MinIO, backend, web, Prometheus et Grafana (§10.7.5), avec rechargement à chaud. Une seule commande doit suffire à démarrer l'ensemble ; c'est la condition pour que Claude Code puisse valider son travail.
+
+### 10.7 Observabilité
+
+**Trois flux distincts, à ne jamais confondre.** L'`audit_event` (§8.4) est une obligation
+légale : immuable, conservé 5 ans, stocké en base, jamais expédié hors du système. Les **logs
+applicatifs** servent l'exploitation : éphémères, expédiés vers un agrégateur, jamais opposables.
+Les **métriques** sont des agrégats numériques sans identifiant. Router l'audit vers l'agrégateur
+de logs, ou déduire une preuve d'un log, sont deux erreurs symétriques — la première fait sortir
+de la donnée soumise à conservation, la seconde s'appuie sur un flux qu'on peut perdre.
+
+#### 10.7.1 Logs applicatifs
+
+**Format JSON dès le premier jour**, via le support structuré natif de Spring Boot 3.4+
+(`logging.structured.format.console`), sans dépendance externe : ajouter le JSON après coup oblige
+à réécrire chaque appel de log et chaque règle d'extraction en aval.
+
+Champs posés en MDC par le filtre de KDN-15, présents sur **chaque** ligne :
+
+| Clé | Contenu | Origine |
+|---|---|---|
+| `correlation_id` | UUID de la requête utilisateur, renvoyé au client | filtre servlet, accepté en en-tête entrant ou généré |
+| `tenant_id` | UUID opaque du tenant courant | `TenantContext` |
+| `trace_id`, `span_id` | identifiants techniques | Micrometer Tracing (§10.7.3) |
+
+`correlation_id` est l'identifiant **fonctionnel** : c'est lui qu'on donne à un utilisateur qui
+signale un incident, et lui qui figure dans l'événement d'audit correspondant. `trace_id` est
+l'identifiant **technique** de la trace distribuée. Les deux coexistent, aucun ne remplace l'autre.
+
+**Une ligne d'accès par requête HTTP terminée** : méthode, **route templatisée**
+(`/api/outings/{id}`, jamais l'URI brute), statut, durée en millisecondes, taille de la réponse.
+L'URI brute en clair de log est une fuite d'identifiants et rend tout regroupement impossible.
+
+**Une ligne d'entrée et de sortie par traitement notable** — import d'un lot, application d'un
+profil de mapping, recalcul de métriques, consommation d'outbox — avec la durée, le résultat et le
+même `correlation_id` que la requête qui l'a déclenché. Un traitement asynchrone qui perd le
+`correlation_id` de son déclencheur est un traitement qu'on ne saura pas rattacher à un incident.
+
+**Aucune PII dans un log. Jamais.** Ni adresse, ni nom, ni e-mail, ni SIREN, ni identifiant de
+contrepartie. Les logs quittent le système, échappent au chiffrement de §8.2 et à la purge de
+§8.3 : une adresse écrite dans un log survit à l'effacement du compte qui l'a produite. Un UUID
+opaque de tenant est acceptable ; tout ce qui désigne une personne ne l'est pas. En cas de doute
+sur un objet à journaliser, journaliser son identifiant, pas son contenu.
+
+#### 10.7.2 Métriques
+
+**Micrometer avec registre Prometheus, en collecte *pull*** sur `/actuator/prometheus`.
+
+**Le port de management est séparé du port applicatif** (`management.server.port`), et n'est
+exposé ni par le service web ni par l'ingress. `/actuator/prometheus` publie la topologie interne
+de l'application ; il est joignable par le collecteur, par rien d'autre.
+
+Conventions de nommage, alignées sur les usages Prometheus :
+
+- préfixe `kadran_`, puis contexte borné, puis sujet : `kadran_ingestion_parse_failures_total` ;
+- suffixe `_total` sur les compteurs, unité de base en suffixe pour le reste (`_seconds`,
+  `_bytes`) — jamais de millisecondes dans un nom de métrique ;
+- les métriques HTTP, JVM et datasource viennent d'Actuator : ne pas les redéfinir.
+
+Métriques métier attendues au MVP : échecs de parsing par profil de mapping, lots d'import par
+état de la machine à états, durée des recalculs de métriques, profondeur et âge de l'outbox.
+
+> **Aucune métrique ne porte de dimension `tenant_id`, `driver_id` ou identifiant d'agrégat.**
+> Deux motifs, chacun suffisant. La cardinalité : une série temporelle est créée par combinaison
+> de labels, et un label par tenant multiplie la charge du collecteur par le nombre de clients —
+> c'est la première cause d'effondrement d'une instance Prometheus. La confidentialité : les
+> métriques partent vers un système d'exploitation qui n'a ni le chiffrement de §8.2, ni les
+> restrictions d'accès de §9, ni la purge de §8.3. **Ce qui doit être lu par tenant se lit dans
+> l'application, jamais dans Grafana.**
+
+#### 10.7.3 Traces
+
+Micrometer Tracing avec pont OpenTelemetry, propagation W3C `traceparent`, `trace_id` et `span_id`
+posés en MDC. **L'instrumentation est en place en v1, l'exportation ne l'est pas** : on branche un
+exporteur OTLP le jour où un collecteur existe, sans retoucher le code applicatif.
+
+#### 10.7.4 Santé
+
+`/actuator/health` avec sondes `liveness` et `readiness` distinctes. La `readiness` dépend de la
+base : une instance qui ne peut pas migrer ni requêter ne doit pas recevoir de trafic. La
+`liveness` n'en dépend pas — une base indisponible ne doit pas déclencher une boucle de
+redémarrages.
+
+#### 10.7.5 Pile locale
+
+`docker/compose.yml` embarque **Prometheus et Grafana** en plus de PostgreSQL, MinIO, backend et
+web. Prometheus collecte le port de management du backend ; Grafana est provisionné par fichiers,
+et **ses tableaux de bord sont versionnés dans le dépôt** (`docker/grafana/`). Un tableau de bord
+construit à la souris dans une instance locale n'existe pas : il disparaît au premier
+`docker compose down -v`.
 
 ---
 
@@ -1257,6 +1346,7 @@ Les issues `[spike]` portent le label `needs-sample` et sont **bloquantes** dans
 | ADR-008 | **Périmètre v1 restreint à Uber**, Bolt et Heetch reportés en v1.1 (§2.3) | **Acté** |
 | ADR-009 | `Amplitude` typée `Observed` / `Floor`, jamais un chiffre nu (§3.7) | **Acté** |
 | ADR-010 | **Monorepo** back + front + design + docs (§10.6). Motif principal : `ci-openapi` vérifie dans une même PR que les types front correspondent au contrat back. Choix réversible — extraire `web/` reste peu coûteux, fusionner deux dépôts ne l'est pas | **Acté** |
+| ADR-011 | **Observabilité** : logs JSON structurés sans PII, métriques Prometheus **sans dimension `tenant_id`**, port de management séparé, audit distinct des logs (§10.7) | **Acté** |
 | D1 | Les colonnes `Début`/`Fin` de Driversnote portent-elles une heure ? | **Bloquant — KDN-37** |
 | D2 | L'export Bolt *Trips* contient-il la distance et les horaires par course ? | Ouvert — KDN-48 |
 | D3 | Référentiel de coûts sectoriels par défaut | À constituer |
