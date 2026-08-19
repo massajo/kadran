@@ -3,7 +3,7 @@
 
 **Version :** 1.8
 **Destinataire :** Claude Code (implémentation) + Claude Design (maquettes)
-**Stack :** Next.js 15 (App Router) / React 19 / shadcn-ui — Spring Boot 3.5 / Kotlin 2.2 / Gradle 9 / JDK 21 / PostgreSQL 16 / Liquibase
+**Stack :** Next.js 15 (App Router) / React 19 / shadcn-ui — Spring Boot 3.5 / Kotlin 2.2 / Gradle 9 / JDK 21 / PostgreSQL 18 / Liquibase
 
 > **v1.7 → v1.8** : §11.2 — le titre de commit porte `[KDN-<n>]` en tête de description, après le préfixe Conventional Commits · §11.1 — le séparateur des fichiers et identifiants Liquibase passe à l'underscore, et les exemples sont renumérotés sur les issues réellement créées · §8.4 — l'identifiant de changeset de `audit_event` portait `kadran:20260818-04-01`, sans trigramme, contraire à l'ADR-007.
 >

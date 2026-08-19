@@ -10,14 +10,30 @@ ktlint        = "14.2.0"
 archunit      = "1.5.0"
 kotest        = "6.2.4"
 mockk         = "1.14.11"
+# Persistance — versions alignees sur celles que pilote le BOM Spring Boot 3.5.3 :
+# les declarer ici les rend visibles et diffables, sans creer d'ecart avec le BOM.
+postgresql    = "42.7.7"
+liquibase     = "4.31.1"
+testcontainers = "1.21.2"
+# Outillage Liquibase hors BOM : plugin Gradle et son analyseur de ligne de commande.
+liquibaseGradle = "3.1.0"
+picocli       = "4.7.7"
 
 [libraries]
+# --- persistance ---
+postgresql     = { module = "org.postgresql:postgresql",     version.ref = "postgresql" }
+liquibase-core = { module = "org.liquibase:liquibase-core",  version.ref = "liquibase" }
+# Requis par le plugin Gradle Liquibase 3.x sur sa configuration `liquibaseRuntime`.
+picocli        = { module = "info.picocli:picocli",          version.ref = "picocli" }
+
 # --- test : socle commun ---
 kotest-runner     = { module = "io.kotest:kotest-runner-junit5",     version.ref = "kotest" }
 kotest-assertions = { module = "io.kotest:kotest-assertions-core",   version.ref = "kotest" }
 kotest-property   = { module = "io.kotest:kotest-property",          version.ref = "kotest" }
 mockk             = { module = "io.mockk:mockk",                     version.ref = "mockk" }
 archunit-junit5   = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
+testcontainers-postgresql = { module = "org.testcontainers:postgresql",    version.ref = "testcontainers" }
+testcontainers-junit      = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
 
 # --- déclarées ici pour être appliquées depuis buildSrc ---
 kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -34,3 +50,4 @@ kotlin-jvm     = { id = "org.jetbrains.kotlin.jvm",           version.ref = "kot
 kotlin-spring  = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
 spring-boot    = { id = "org.springframework.boot",           version.ref = "springBoot" }
 spring-depmgmt = { id = "io.spring.dependency-management",    version.ref = "springDepMgmt" }
+liquibase      = { id = "org.liquibase.gradle",               version.ref = "liquibaseGradle" }

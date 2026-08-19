@@ -2,6 +2,19 @@ spring:
   application:
     name: kadran
 
+  # Aucun secret en dur : des variables d'environnement, dont les valeurs par défaut
+  # sont celles de la base de développement locale (spec §10.6, « aucun secret dans une
+  # image, toute configuration par variable d'environnement »).
+  datasource:
+    url: ${KADRAN_DB_URL:jdbc:postgresql://localhost:5432/kadran}
+    username: ${KADRAN_DB_USER:kadran}
+    password: ${KADRAN_DB_PASSWORD:kadran}
+
+  # Les migrations s'appliquent au démarrage : une base et un binaire ne peuvent pas
+  # diverger silencieusement. Le changelog maître est le seul point d'entrée (spec §11.1).
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+
   # La journée d'exploitation et toutes les agrégations reposent sur Europe/Paris (§4.3).
   jackson:
     time-zone: Europe/Paris

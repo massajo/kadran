@@ -35,7 +35,7 @@ backend/            Gradle multi-modules, Kotlin 2.1 / Spring Boot 3.4
 web/                Next.js 15 (App Router), React 19, shadcn/ui
 design/             maquettes versionnées — voir DESIGN-BRIEF.md
 docs/               spécification et ADR
-docker/             compose de développement (PostgreSQL 16, MinIO, back, web)
+docker/             compose de développement (PostgreSQL 18, MinIO, back, web)
 .github/workflows/  CI, validation Liquibase, publication d'images
 ```
 

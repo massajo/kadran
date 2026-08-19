@@ -59,7 +59,7 @@ Maquette : design/screens/<écran>/v<version>
 | KDN-2 | Initialiser le monorepo : arborescence, `CLAUDE.md`, `BACKLOG.md`, `DESIGN-BRIEF.md`, licence, README | `infra` |
 | KDN-3 | Squelette Gradle multi-modules avec `domain/{model,api,spi}`, `application`, `infrastructure/{api,spi}` | `backend` |
 | KDN-4 | Squelette Next.js 15, shadcn/ui, structure `features/`, consommation de `design/tokens.json` | `frontend` |
-| KDN-5 | `docker/compose.yml` : PostgreSQL 16, MinIO, backend, web, rechargement à chaud | `infra` |
+| KDN-5 | `docker/compose.yml` : PostgreSQL 18, MinIO, backend, web, rechargement à chaud | `infra` |
 | KDN-6 | Dockerfile backend multi-étapes : JAR en couches, `temurin:21-jre-alpine`, non-root, healthcheck | `infra` |
 | KDN-7 | Dockerfile frontend : Next.js `output: standalone`, `node:22-alpine`, non-root | `infra` |
 | KDN-8 | Workflow `commitlint.yml` : Conventional Commits sur titre de PR et commits | `infra` |

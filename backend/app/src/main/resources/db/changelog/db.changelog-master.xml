@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Changelog maître — seul fichier non-SQL de la migration (spec §11.1).
+
+  `includeAll` n'inclut pas dans l'ordre du système de fichiers : Liquibase trie les
+  chemins avant de les inclure. Combiné au préfixe `yyyyMMdd` qu'impose la convention
+  de nommage, l'ordre d'application est donc chronologique et identique d'une machine
+  à l'autre — c'est cette garantie, et non le hasard du répertoire, qui rend `includeAll`
+  acceptable ici.
+
+  Chaque issue apporte ses propres changesets : pas de changeset monolithique initial,
+  et une migration fusionnée n'est jamais modifiée — on en ajoute une nouvelle.
+-->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <includeAll
+        path="db/changelog/changes/"
+        relativeToChangelogFile="false"
+        errorIfMissingOrEmpty="true"/>
+
+</databaseChangeLog>
