@@ -152,6 +152,26 @@ dans le message de commit ni dans le corps d'une PR. Les seuls pieds admis sont 
 `Closes #`, et `BREAKING CHANGE:`. Un message de commit dit ce qui change et pourquoi ; par qui ou
 par quoi relève de l'auteur du commit, pas de son message.
 
+### Langue
+
+**La documentation en français, le code en anglais.**
+
+En anglais : tout identifiant Kotlin — classes, objets, fonctions, propriétés, paramètres,
+constantes — **y compris les noms de tests entre backticks et les descriptions Kotest**. Un nom de
+test est un identifiant avant d'être une phrase.
+
+En français : commentaires, KDoc, messages `.because(...)` d'ArchUnit, messages d'exception,
+libellés lisibles par un humain, ainsi que la spec, le backlog, les messages de commit et les
+descriptions de PR.
+
+```kotlin
+// Le tenant courant ne survit jamais à la requête : un ThreadLocal laissé posé
+// servirait les données du précédent exploitant au suivant.
+class TenantScopedQuery { fun scopeOf(table: ScopedTable): Condition }
+
+"a SELECT carries the predicate without the caller writing it" { … }
+```
+
 ### Liquibase
 
 Fichier : `backend/app/src/main/resources/db/changelog/changes/yyyyMMdd_KDN-<n>_<description-kebab>.sql`
