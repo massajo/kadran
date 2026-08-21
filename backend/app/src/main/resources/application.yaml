@@ -19,15 +19,68 @@ spring:
   jackson:
     time-zone: Europe/Paris
 
+# Journalisation structurée (spec §10.7.1) — support **natif** de Spring Boot, aucune
+# dépendance externe : le JSON ajouté après coup obligerait à réécrire chaque appel de log
+# et chaque règle d'extraction en aval. Les propriétés `logging.structured.*` sont vérifiées
+# contre Spring Boot 4.1 ; elles n'ont pas changé de nom depuis la 3.4.
+#
+# Format `ecs` : il porte `service.name` (repris de `spring.application.name`), `log.level`,
+# `log.logger` et une décomposition normalisée des exceptions, que tout agrégateur sait lire.
+# Les clés de MDC posées par KDN-15 — `correlation_id`, `tenant_id` — s'y joignent telles
+# quelles, en `snake_case`, comme les paires clé/valeur des lignes d'accès.
+logging:
+  structured:
+    format:
+      console: ecs
+    json:
+      # Micrometer Tracing publie ses identifiants en MDC sous `traceId`/`spanId`, sans
+      # propriété pour en changer. On les réaligne ici sur le `snake_case` du reste des
+      # champs (spec §10.7.1) : une clé de log est un contrat de recherche en aval, et deux
+      # conventions de nommage dans la même ligne en font un piège permanent.
+      rename:
+        traceId: trace_id
+        spanId: span_id
+
 server:
   port: 8080
 
 management:
+  # **Port de management séparé** (spec §10.7.2, ADR-011). `/actuator/prometheus` publie la
+  # topologie interne de l'application : il doit être joignable par le collecteur, par rien
+  # d'autre. Ce port n'est exposé ni par le service web ni par l'ingress ; côté conteneur,
+  # seul le port applicatif est publié.
+  server:
+    port: 8081
+
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
+
   endpoint:
     health:
+      # Le port de management n'est pas exposé hors du réseau interne : le détail des
+      # contributeurs y est lisible, et c'est lui qui dit *pourquoi* une instance n'est pas
+      # prête. Il n'y a là aucune donnée de tenant.
+      show-details: always
       probes:
         enabled: true
+      group:
+        # **Sondes distinctes** (spec §10.7.4). La `readiness` dépend de la base : une
+        # instance qui ne peut ni migrer ni requêter ne doit pas recevoir de trafic. La
+        # `liveness` n'en dépend surtout pas — sans quoi une base indisponible ferait
+        # redémarrer en boucle des instances parfaitement saines, et le redémarrage
+        # n'accélérerait jamais le retour de la base.
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+
+  # Micrometer Tracing, pont OpenTelemetry, propagation W3C `traceparent` (spec §10.7.3).
+  # **Instrumentation en place, exportation non** : aucun exporteur OTLP n'est déclaré tant
+  # qu'aucun collecteur n'existe. L'échantillonnage est donc à 1.0 — rien ne part sur le
+  # réseau, et chaque ligne de log porte son `trace_id`, ce que §10.7.1 exige. À rabaisser
+  # le jour où un exporteur est branché.
+  tracing:
+    sampling:
+      probability: 1.0
