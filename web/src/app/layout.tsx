@@ -1,16 +1,18 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
+import { AppIntlProvider } from "@/lib/i18n/intl-provider";
+import { getTranslations, resolveLocale } from "@/lib/i18n/locale";
 import { QueryProvider } from "@/lib/query/query-provider";
 
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Kadran",
-  description:
-    "La rentabilité réelle d'un chauffeur VTC : marge par sortie, coût de revient au kilomètre, " +
-    "commission effective, revenu réellement disponible.",
-};
+// Les métadonnées suivent la langue résolue : le titre d'onglet et la description
+// partagée ne peuvent pas rester figés en français pour un utilisateur anglophone.
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("app");
+  return { title: t("title"), description: t("description") };
+}
 
 export const viewport: Viewport = {
   // Le chiffre héros doit tenir sur 375 px sans troncature (DESIGN-BRIEF §6).
@@ -19,12 +21,17 @@ export const viewport: Viewport = {
   themeColor: "#0a0a0a",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
   // `data-theme="dark"` est posé côté serveur : pas de bascule visible au chargement.
+  // `lang` suit la même logique — résolu avant le premier octet, jamais corrigé après coup.
+  const locale = await resolveLocale();
+
   return (
-    <html lang="fr" data-theme="dark">
+    <html lang={locale} data-theme="dark">
       <body>
-        <QueryProvider>{children}</QueryProvider>
+        <AppIntlProvider locale={locale}>
+          <QueryProvider>{children}</QueryProvider>
+        </AppIntlProvider>
       </body>
     </html>
   );
