@@ -1,5 +1,11 @@
 // Tenancy, sécurité, chiffrement, audit, outbox (spec §10.1).
-plugins { id("kadran.spring-conventions") }
+plugins {
+    id("kadran.spring-conventions")
+    // `java-library` pour disposer de la configuration `api` : `TenantScopedTable` expose
+    // des types jOOQ dans sa signature, ils font donc partie du contrat du module et non de
+    // ses coulisses. Sans cela, aucun contexte borné ne peut écrire un repository.
+    `java-library`
+}
 
 dependencies {
     implementation(project(":shared-kernel"))
@@ -8,6 +14,12 @@ dependencies {
     // les épingle toutes — y compris `kotlinx-coroutines` et `jakarta.servlet-api`. Rien à
     // déclarer dans le catalogue de versions tant qu'on reste dans son périmètre.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
+    // jOOQ sert le DSL analytique et `TenantScopedQuery` (spec §10.3). En `api` parce que
+    // `Table`, `Field` et `Record` apparaissent dans la signature de `TenantScopedTable` :
+    // un consommateur qui ne les voit pas ne peut pas déclarer sa table. Seul l'artefact
+    // `jooq` est requis — la génération de code n'est pas encore en place, les tables se
+    // déclarent à la main via `TenantScopedTable.named(...)`.
+    api("org.jooq:jooq")
     implementation("org.slf4j:slf4j-api")
     implementation("org.springframework:spring-context")
     implementation("org.springframework:spring-web")

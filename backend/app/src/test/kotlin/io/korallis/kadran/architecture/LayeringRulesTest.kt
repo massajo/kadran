@@ -1,6 +1,7 @@
 package io.korallis.kadran.architecture
 
 import com.tngtech.archunit.core.domain.JavaClasses
+import com.tngtech.archunit.core.importer.ImportOption
 import com.tngtech.archunit.junit.AnalyzeClasses
 import com.tngtech.archunit.junit.ArchTest
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
@@ -11,8 +12,15 @@ import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
  * `api` = ce que le module offre, `spi` = ce qu'il exige d'un fournisseur. La convention
  * s'applique symétriquement aux ports (`domain/`) et aux adaptateurs (`infrastructure/`) ;
  * ces règles sont ce qui l'empêche de se déliter au fil des PR.
+ *
+ * `DoNotIncludeTests`, comme pour les autres règles du paquet : elles verrouillent le code de
+ * production, et les classes de violation délibérée du paquet `fixtures` vivent dans les
+ * sources de test.
  */
-@AnalyzeClasses(packages = ["io.korallis.kadran"])
+@AnalyzeClasses(
+    packages = ["io.korallis.kadran"],
+    importOptions = [ImportOption.DoNotIncludeTests::class],
+)
 class LayeringRulesTest {
     @ArchTest
     fun `le domaine ne depend pas de l'infrastructure`(classes: JavaClasses) {
