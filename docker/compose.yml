@@ -182,7 +182,17 @@ services:
     healthcheck:
       # Même sonde que `backend/Dockerfile` (KDN-6) : `wget` BusyBox, présent sur l'image
       # Alpine du stage de build comme sur celle du runtime.
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/actuator/health"]
+      #
+      # Sur le **port de management** (8081), pas sur le port applicatif : depuis KDN-124,
+      # Actuator n'est plus servi sur le 8080, qui renverrait 404 et laisserait le service
+      # `unhealthy` indéfiniment. Ce port n'est pas publié — la sonde tourne *dans* le
+      # conteneur et n'a besoin d'aucune publication (spec §10.7.2).
+      #
+      # `readiness` plutôt que `health` : c'est la sonde qui dépend de la base, donc celle
+      # qui dit si le service peut recevoir du trafic. `liveness` n'en dépend pas
+      # délibérément, une base indisponible ne devant pas provoquer de boucle de
+      # redémarrages (spec §10.7.4).
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/actuator/health/readiness"]
       interval: 10s
       timeout: 5s
       retries: 30
