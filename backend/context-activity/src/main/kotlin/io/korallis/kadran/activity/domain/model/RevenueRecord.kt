@@ -236,7 +236,7 @@ data class RevenueRecord(
         fun record(
             record: RevenueRecord,
             occurredAt: Instant,
-        ): Transition<RevenueRecord> =
+        ): Transition<RevenueRecord, RevenueRecordEvent> =
             Transition(
                 record,
                 RevenueRecorded(record.tenantId, record.id, record.platform, record.grain, occurredAt),

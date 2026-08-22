@@ -4,10 +4,10 @@
 plugins { id("kadran.context-conventions") }
 
 dependencies {
-    // PostgreSQL réel via Testcontainers, **jamais H2** (spec §10.4, même motif que
-    // context-identity/KDN-27) : le test d'isolation de `revenue_record` (KDN-35) porte sur
-    // une clé étrangère composite et un index GIN, dont H2 ne reproduit ni la syntaxe ni le
-    // comportement.
+    // PostgreSQL réel via Testcontainers, **jamais H2** (spec §10.4) — même motif que
+    // `context-identity` (KDN-27) : les tests d'isolation d'`Outing` (KDN-34) et de
+    // `RevenueRecord` (KDN-35) portent sur des clés étrangères composites et un index GIN,
+    // qu'H2 ne reproduit ni dans la syntaxe ni dans le comportement.
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.junit)
     // Le changelog vit dans `app` (spec §11.1) ; le test d'isolation l'applique lui-même

@@ -25,8 +25,6 @@ import org.jooq.JSONB
 import org.jooq.Record
 import java.time.Duration
 import java.time.Instant
-import java.time.OffsetDateTime
-import java.time.ZoneOffset
 import java.util.Currency
 
 /**
@@ -219,18 +217,7 @@ private fun RevenueRecordJson.toProvenance(): Set<DataProvenance> {
 private fun RevenueRecordJson.Obj.stringField(name: String): String =
     (fields[name] as? RevenueRecordJson.Str)?.value ?: error("champ JSON '$name' absent ou non textuel")
 
-// ------------------------------------------------------------------------------- colonnes JDBC
-
-/**
- * L'offset est **UTC et non `Europe/Paris`** : la colonne est un point sur la ligne du temps,
- * le fuseau d'exploitation (spec §4.3) s'applique à la lecture métier, jamais au stockage
- * (même choix que `RecordAccess.toColumnValue` en KDN-27).
- */
-private fun Instant.toColumnValue(): OffsetDateTime = atOffset(ZoneOffset.UTC)
-
-/** Lit une colonne en convertissant vers le type attendu, plutôt que de parier sur celui du pilote JDBC. */
-private fun <T : Any> Record.readOrNull(field: Field<T>): T? = get(field, field.type)
-
-/** @throws IllegalStateException si la colonne est nulle alors que le schéma l'interdit. */
-private fun <T : Any> Record.read(field: Field<T>): T =
-    checkNotNull(readOrNull(field)) { "colonne ${field.name} nulle alors que le schema l'interdit" }
+// `toColumnValue`/`read`/`readOrNull` : voir `RecordAccess.kt` (KDN-34), qui les définit une
+// seule fois pour tout le module `context-activity` — cette lane (KDN-35) les avait dupliqués
+// en local avant que KDN-34 ne fusionne ; retiré au rebase plutôt que de garder deux versions
+// identiques dont l'une aurait fini par diverger sans que personne ne le remarque.
