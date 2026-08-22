@@ -28,6 +28,7 @@ class TenantTest :
             tenant.isOnboarded shouldBe false
             tenant.isClosed shouldBe false
             tenant.closedAt.shouldBeNull()
+            tenant.createdAt shouldBe now
             event shouldBe TenantRegistered(id, Siren.of("732829320"), now)
         }
 
@@ -67,6 +68,21 @@ class TenantTest :
             val closed = register().state.close(now).state
 
             shouldThrow<IllegalStateException> { closed.close(now.plusSeconds(1)) }
+        }
+
+        // Ex-`ck_tenant_closed_after_creation`, retiree en KDN-137 : le domaine tient seul
+        // l'invariant desormais, `createdAt` etant porte par l'agregat.
+        "a tenant cannot close before it was created" {
+            val tenant = register().state
+
+            shouldThrow<IllegalArgumentException> { tenant.close(now.minusSeconds(1)) }
+        }
+
+        "closing exactly at creation is allowed, the boundary is inclusive" {
+            val (tenant, event) = register().state.close(now)
+
+            tenant.closedAt shouldBe now
+            event shouldBe TenantClosed(id, now)
         }
 
         "a closed tenant cannot resume its onboarding" {

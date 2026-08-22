@@ -42,7 +42,13 @@ class JooqTenantRepository(
     }
 
     private fun insertValues(tenant: Tenant): Map<Field<*>, Any?> =
-        mutableValues(tenant) + mapOf<Field<*>, Any?>(TENANT.tenantId to tenant.id.value)
+        mutableValues(tenant) +
+            mapOf<Field<*>, Any?>(
+                TENANT.tenantId to tenant.id.value,
+                // Ecrite une seule fois, comme le tenant_id : `created_at` n'a pas de méthode
+                // de mutation côté domaine, elle ne doit donc jamais figurer dans un `SET`.
+                TenantColumns.CREATED_AT to tenant.createdAt.toColumnValue(),
+            )
 
     private fun mutableValues(tenant: Tenant): Map<Field<*>, Any?> =
         mapOf(
@@ -59,5 +65,6 @@ class JooqTenantRepository(
             siren = Siren.of(read(TenantColumns.SIREN)),
             onboardingStatus = OnboardingStatus.valueOf(read(TenantColumns.ONBOARDING_STATUS)),
             closedAt = readOrNull(TenantColumns.CLOSED_AT)?.toInstant(),
+            createdAt = read(TenantColumns.CREATED_AT).toInstant(),
         )
 }
