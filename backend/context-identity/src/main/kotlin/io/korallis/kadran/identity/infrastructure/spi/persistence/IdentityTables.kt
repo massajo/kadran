@@ -60,6 +60,12 @@ internal object IdentityTables {
         val SIREN: Field<String> = text("tenant", "siren")
         val ONBOARDING_STATUS: Field<String> = text("tenant", "onboarding_status")
         val CLOSED_AT: Field<OffsetDateTime> = timestamp("tenant", "closed_at")
+
+        /**
+         * Portée par le domaine depuis KDN-137, qui en a besoin pour refuser une clôture
+         * antérieure à la création (ex-`ck_tenant_closed_after_creation`).
+         */
+        val CREATED_AT: Field<OffsetDateTime> = timestamp("tenant", "created_at")
     }
 
     /** Colonnes de `driver`. */

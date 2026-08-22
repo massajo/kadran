@@ -91,7 +91,16 @@ class DriverAndVehicleTest :
             vehicle.toString().contains("AA123AA") shouldBe true
         }
 
-        "the persisted vocabularies match the database check constraints" {
+        // Jusqu'a KDN-137, ce test comparait ces trois vocabulaires aux `CHECK` SQL
+        // correspondants (`ck_vehicle_energy`, `ck_vehicle_ownership_mode`,
+        // `ck_tenant_onboarding_status`) : les deux devaient dire la meme chose, sous peine
+        // qu'une valeur du domaine soit rejetee en base ou qu'une contrainte laisse passer une
+        // valeur que le domaine ne connait pas. Les `CHECK` retires, la comparaison n'a plus de
+        // second terme — mais l'ordre et le nom de ces constantes restent une donnee persistee :
+        // chaque ligne stocke `.name`, jamais l'ordinal. Renommer ou reordonner une entree ici
+        // changerait silencieusement ce que les lignes deja ecrites signifient. Ce test epingle
+        // donc desormais le vocabulaire pour lui-meme, contre ce risque de compatibilite.
+        "the persisted vocabularies are pinned, since renaming one would corrupt rows already written" {
             EnergySource.entries.map { it.name } shouldBe
                 listOf("DIESEL", "PETROL", "HYBRID", "PLUG_IN_HYBRID", "ELECTRIC", "LPG")
             OwnershipMode.entries.map { it.name } shouldBe
