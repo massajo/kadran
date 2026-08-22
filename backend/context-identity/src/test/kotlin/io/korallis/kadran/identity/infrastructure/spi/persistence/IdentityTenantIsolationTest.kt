@@ -103,15 +103,21 @@ class IdentityTenantIsolationTest {
     @BeforeEach
     fun resetBusinessTables() {
         dsl = DSL.using(connection, SQLDialect.POSTGRES)
-        dsl.execute("TRUNCATE membership, vehicle, driver, tenant CASCADE")
+        // Qualifiées par `kadran` depuis KDN-136 : les quatre tables ne vivent plus dans
+        // `public`, où le search_path par défaut de la connexion irait sinon les chercher.
+        dsl.execute("TRUNCATE kadran.membership, kadran.vehicle, kadran.driver, kadran.tenant CASCADE")
     }
 
     // ---------------------------------------------------------------- le schéma lui-même
 
     /**
-     * Une table de `public` dépourvue de `tenant_id NOT NULL` fait échouer le build, **quel que
+     * Une table de `kadran` dépourvue de `tenant_id NOT NULL` fait échouer le build, **quel que
      * soit le contexte qui l'a créée**. Le filtre est une liste d'exemptions et non une liste de
      * tables métier : c'est le seul sens qui protège les tables qui n'existent pas encore.
+     *
+     * Le balayage porte sur `kadran`, le schéma opérationnel (KDN-136) — pas sur `public`, où
+     * ne vivent plus que les tables de Liquibase, ni sur `audit`, dont le modèle de permissions
+     * et le cycle de vie sont distincts (spec §8.4, §9.3, ADR-013).
      */
     @Test
     fun `every business table carries a non-nullable tenant_id`() {
@@ -126,7 +132,7 @@ class IdentityTenantIsolationTest {
                           AND c.table_name = t.table_name
                           AND c.column_name = 'tenant_id'
                           AND c.is_nullable = 'NO'
-                    WHERE t.table_schema = 'public'
+                    WHERE t.table_schema = 'kadran'
                       AND t.table_type = 'BASE TABLE'
                       AND t.table_name NOT IN ($QUOTED_EXEMPTIONS)
                       AND c.column_name IS NULL
@@ -158,7 +164,7 @@ class IdentityTenantIsolationTest {
                     JOIN pg_class i ON i.oid = x.indexrelid
                     JOIN pg_namespace n ON n.oid = c.relnamespace
                     JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = x.indkey[0]
-                    WHERE n.nspname = 'public'
+                    WHERE n.nspname = 'kadran'
                       AND c.relkind = 'r'
                       AND c.relname NOT IN ($QUOTED_EXEMPTIONS)
                       AND x.indnatts > 1
@@ -405,7 +411,7 @@ class IdentityTenantIsolationTest {
             .fetch(
                 """
                 SELECT table_name FROM information_schema.tables
-                WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+                WHERE table_schema = 'kadran' AND table_type = 'BASE TABLE'
                   AND table_name NOT IN ($QUOTED_EXEMPTIONS)
                 ORDER BY table_name
                 """.trimIndent(),
@@ -417,7 +423,7 @@ class IdentityTenantIsolationTest {
 
         /**
          * **Refus par défaut** — le parti pris que KDN-16 a retenu pour son balayage des
-         * littéraux SQL. Toute table de `public` est réputée devoir être scopée ; seules les
+         * littéraux SQL. Toute table de `kadran` est réputée devoir être scopée ; seules les
          * lignes ci-dessous y échappent.
          *
          * Filtrer sur une liste de tables *métier* ferait l'inverse, et serait un faux
@@ -427,9 +433,13 @@ class IdentityTenantIsolationTest {
          * défaut est le comportement sûr — tandis qu'ajouter une exemption est un acte
          * délibéré, qui se relit en PR.
          *
-         * `schema_baseline` est la table de contrôle de KDN-14 ; les deux autres appartiennent
-         * à Liquibase. **N'ajouter une entrée ici qu'avec sa justification** : chaque ligne est
-         * un trou dans le contrôle 1 de la spec §9.1.
+         * `schema_baseline` est la table de contrôle de KDN-14, déplacée dans `kadran` par
+         * KDN-136 mais toujours hors périmètre du contrôle. `databasechangelog` et
+         * `databasechangeloglock` appartiennent à Liquibase et restent dans `public` (KDN-136) :
+         * elles n'apparaîtraient de toute façon jamais dans un balayage de `kadran`, mais la
+         * liste les garde par cohérence avec le balayage de `SqlLiteralScanner`, qui porte sur
+         * les littéraux SQL du code plutôt que sur un schéma. **N'ajouter une entrée ici qu'avec
+         * sa justification** : chaque ligne est un trou dans le contrôle 1 de la spec §9.1.
          */
         val UNSCOPED_TABLES: Set<String> =
             setOf("schema_baseline", "databasechangelog", "databasechangeloglock")
@@ -445,7 +455,11 @@ class IdentityTenantIsolationTest {
 
         @Container
         @JvmStatic
-        val postgres = PostgreSQLContainer("postgres:18-alpine")
+        val postgres =
+            // Crée kadran/audit et épingle le search_path du rôle avant la première
+            // connexion (KDN-136) — sans volume persistant ici, rejoué à chaque conteneur.
+            PostgreSQLContainer("postgres:18-alpine")
+                .withInitScript("db/bootstrap/create-schemas.sql")
 
         /**
          * Racine des ressources de `app`, où vit le changelog (spec §11.1). On remonte jusqu'au

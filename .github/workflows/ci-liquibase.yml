@@ -82,6 +82,20 @@ jobs:
       - name: Configurer Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Crée les schémas kadran/audit et épingle le search_path du rôle avant que
+      # Liquibase ne s'y connecte (KDN-136) — même script que docker/compose.yml et les
+      # tests Testcontainers, db/bootstrap/create-schemas.sql, une seule source. Le
+      # service `postgres:` ci-dessus ne permet pas de montage de volume comme le ferait
+      # un `docker run -v`, d'où ce pas explicite plutôt qu'un `docker-entrypoint-initdb.d`.
+      - name: Amorcer les schémas PostgreSQL
+        env:
+          PGPASSWORD: kadran
+        # Le chemin est relatif à `working-directory: backend` (défaut du job, ligne 46) —
+        # d'où `platform/...`, et non `backend/platform/...` comme dans la racine du dépôt.
+        run: |
+          psql -h localhost -U kadran -d kadran \
+            -f platform/src/main/resources/db/bootstrap/create-schemas.sql
+
       # `rollbackCount 1` ne défait que le dernier changeset appliqué. La commande
       # documentée dans CLAUDE.md §5 (`-PliquibaseCommandValue=1`) convient pour un
       # usage local ponctuel, mais figée telle quelle en CI elle ne prouverait le

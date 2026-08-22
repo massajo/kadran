@@ -36,8 +36,9 @@ class TenantScopedQueryTest :
         fun sql(query: Query): String = query.getSQL(ParamType.INLINED).lowercase()
 
         // jOOQ rend un UUID en `cast('…' as uuid)` sur PostgreSQL : on assère le SQL tel
-        // qu'il partira au pilote, pas une forme idéalisée.
-        val scopeOnOuting = """"outing"."tenant_id" = cast('${tenant.value}' as uuid)"""
+        // qu'il partira au pilote, pas une forme idéalisée. Le schéma `kadran` est celui par
+        // défaut de `TenantScopedTable.named` depuis KDN-136.
+        val scopeOnOuting = """"kadran"."outing"."tenant_id" = cast('${tenant.value}' as uuid)"""
 
         "a SELECT carries the predicate without the caller writing it" {
             val query = TenantScopedQuery.forTenant(tenant, dsl).selectFrom(outing)
@@ -118,8 +119,8 @@ class TenantScopedQueryTest :
 
             val rendered = DSL.and(query.scopeOf(outing), query.scopeOf(vehicle)).toString().lowercase()
 
-            rendered shouldContain """"outing"."tenant_id""""
-            rendered shouldContain """"vehicle"."tenant_id""""
+            rendered shouldContain """"kadran"."outing"."tenant_id""""
+            rendered shouldContain """"kadran"."vehicle"."tenant_id""""
         }
 
         "forCurrentTenant takes the tenant established on the thread" {
@@ -157,10 +158,20 @@ class TenantScopedQueryTest :
         }
 
         "a scoped table qualifies its isolation column" {
-            outing.tenantId.qualifiedName.toString() shouldBe """"outing"."tenant_id""""
+            outing.tenantId.qualifiedName.toString() shouldBe """"kadran"."outing"."tenant_id""""
+        }
+
+        "a scoped table can be declared in a schema other than the default" {
+            val auditEvent = TenantScopedTable.named("audit_event", schema = "audit")
+
+            auditEvent.tenantId.qualifiedName.toString() shouldBe """"audit"."audit_event"."tenant_id""""
         }
 
         "an unnamed table is refused" {
             shouldThrow<IllegalArgumentException> { TenantScopedTable.named("  ") }
+        }
+
+        "an unnamed schema is refused" {
+            shouldThrow<IllegalArgumentException> { TenantScopedTable.named("outing", schema = "  ") }
         }
     })

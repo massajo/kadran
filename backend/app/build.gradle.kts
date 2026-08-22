@@ -80,6 +80,13 @@ liquibase {
                 put("url", System.getenv("KADRAN_DB_URL") ?: "jdbc:postgresql://localhost:5432/kadran")
                 put("username", System.getenv("KADRAN_DB_USER") ?: "kadran")
                 put("password", System.getenv("KADRAN_DB_PASSWORD") ?: "kadran")
+                // Les tables de suivi de Liquibase (`databasechangelog`,
+                // `databasechangeloglock`) vivent dans `kadran`, comme le reste de la donnee
+                // operationnelle (KDN-136) — meme choix que `spring.liquibase.liquibase-schema`
+                // dans `application.yaml`, pour la meme commande executee hors du contexte
+                // Spring. Le schema doit exister avant cette premiere connexion : voir
+                // `db/bootstrap/create-schemas.sql`.
+                put("liquibaseSchemaName", "kadran")
                 providers.gradleProperty("liquibaseCommandValue").orNull?.let { put("count", it) }
             }
     }

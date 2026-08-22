@@ -30,20 +30,29 @@ internal object IdentityTables {
     val MEMBERSHIP: TenantScopedTable<Record> = TenantScopedTable.named("membership")
     val VEHICLE: TenantScopedTable<Record> = TenantScopedTable.named("vehicle")
 
+    /**
+     * Schéma commun aux quatre tables — le même que celui par défaut de
+     * [TenantScopedTable.named] (KDN-136). Qualifié ici aussi, et pas seulement sur la colonne
+     * `tenant_id` que [TenantScopedTable] porte déjà : une colonne non qualifiée résoudrait
+     * correctement contre `FROM kadran.tenant` tant qu'aucun alias n'est en jeu, mais le
+     * dire explicitement évite d'en dépendre.
+     */
+    private const val SCHEMA = TenantScopedTable.OPERATIONAL_SCHEMA
+
     private fun uuid(
         table: String,
         column: String,
-    ): Field<UUID> = DSL.field(DSL.name(table, column), UUID::class.java)
+    ): Field<UUID> = DSL.field(DSL.name(SCHEMA, table, column), UUID::class.java)
 
     private fun text(
         table: String,
         column: String,
-    ): Field<String> = DSL.field(DSL.name(table, column), String::class.java)
+    ): Field<String> = DSL.field(DSL.name(SCHEMA, table, column), String::class.java)
 
     private fun timestamp(
         table: String,
         column: String,
-    ): Field<OffsetDateTime> = DSL.field(DSL.name(table, column), OffsetDateTime::class.java)
+    ): Field<OffsetDateTime> = DSL.field(DSL.name(SCHEMA, table, column), OffsetDateTime::class.java)
 
     /** Colonnes de `tenant`. Sa clé primaire est [TenantScopedTable.tenantId]. */
     object TenantColumns {
@@ -76,6 +85,6 @@ internal object IdentityTables {
         val ENERGY: Field<String> = text("vehicle", "energy")
         val OWNERSHIP_MODE: Field<String> = text("vehicle", "ownership_mode")
         val FIRST_REGISTERED_ON: Field<LocalDate> =
-            DSL.field(DSL.name("vehicle", "first_registered_on"), LocalDate::class.java)
+            DSL.field(DSL.name(SCHEMA, "vehicle", "first_registered_on"), LocalDate::class.java)
     }
 }

@@ -224,6 +224,10 @@ class ObservabilityContractTest {
         @Container
         @ServiceConnection
         @JvmStatic
-        val postgres = PostgreSQLContainer("postgres:18-alpine")
+        val postgres =
+            // Crée kadran/audit et épingle le search_path du rôle avant la première
+            // connexion (KDN-136) — sans volume persistant ici, rejoué à chaque conteneur.
+            PostgreSQLContainer("postgres:18-alpine")
+                .withInitScript("db/bootstrap/create-schemas.sql")
     }
 }

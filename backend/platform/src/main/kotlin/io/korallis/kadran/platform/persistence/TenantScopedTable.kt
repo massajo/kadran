@@ -37,16 +37,31 @@ interface TenantScopedTable<R : Record> {
         const val TENANT_ID_COLUMN: String = "tenant_id"
 
         /**
-         * Déclare une table scopée par son nom.
+         * Schéma des tables métier au cycle de vie et aux permissions opérationnels — par
+         * opposition au schéma `audit`, réglementaire, où vivront `audit_event` et
+         * `entity_change` (KDN-136, spec §9.3, ADR-013).
+         */
+        const val OPERATIONAL_SCHEMA: String = "kadran"
+
+        /**
+         * Déclare une table scopée par son nom, dans [schema].
          *
          * Le nom passe par `DSL.name` : il est traité comme un identifiant, jamais comme du
          * SQL. Ce point d'entrée ne peut donc pas servir à injecter un fragment de requête.
+         *
+         * [schema] vaut [OPERATIONAL_SCHEMA] par défaut : tous les appels existants continuent
+         * de désigner le schéma opérationnel sans se réécrire. Un futur `named("audit_event",
+         * schema = "audit")` désignera le second schéma sans changer cette signature.
          */
-        fun named(name: String): TenantScopedTable<Record> {
+        fun named(
+            name: String,
+            schema: String = OPERATIONAL_SCHEMA,
+        ): TenantScopedTable<Record> {
             require(name.isNotBlank()) { "le nom d'une table scopee ne peut pas etre vide" }
+            require(schema.isNotBlank()) { "le nom d'un schema ne peut pas etre vide" }
             return NamedTenantScopedTable(
-                table = DSL.table(DSL.name(name)),
-                tenantId = DSL.field(DSL.name(name, TENANT_ID_COLUMN), UUID::class.java),
+                table = DSL.table(DSL.name(schema, name)),
+                tenantId = DSL.field(DSL.name(schema, name, TENANT_ID_COLUMN), UUID::class.java),
             )
         }
     }
