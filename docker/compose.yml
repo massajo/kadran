@@ -176,6 +176,12 @@ services:
       KADRAN_DB_URL: jdbc:postgresql://postgres:5432/kadran
       KADRAN_DB_USER: kadran
       KADRAN_DB_PASSWORD: kadran
+      # Active `DevCredentialsFinder` et `DevTenantSeeder` (KDN-139) : sans compte seedé,
+      # aucun écran ne peut se connecter à l'UI tant que l'onboarding complet (KDN-26/28)
+      # n'existe pas. Propriété standard de Spring Boot, jamais définie dans `application.yaml`
+      # pour qu'un `bootJar` de production démarre sans profil, comme n'importe quelle
+      # variable ici — voir le commentaire sur `KADRAN_DB_PASSWORD` juste au-dessus.
+      SPRING_PROFILES_ACTIVE: dev
     ports:
       - "8080:8080"
     depends_on:
