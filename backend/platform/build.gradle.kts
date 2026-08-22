@@ -27,6 +27,16 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-autoconfigure")
     implementation("jakarta.servlet:jakarta.servlet-api")
 
+    // Spring Security (spec §10.3, ligne `Auth`). En `api` : `TenantIdResolver` et le
+    // contrôleur d'authentification exposent `Jwt`, `PasswordEncoder` et `SecurityFilterChain`
+    // dans leurs signatures, et le module `app` doit les voir pour composer sa configuration.
+    // `-oauth2-resource-server` apporte le validateur de jeton porteur et son extraction
+    // d'en-tête ; `-oauth2-jose` apporte Nimbus, donc l'encodeur et le décodeur JWT. Les deux
+    // sont nécessaires : le premier valide, le second signe, et rien n'émet de jeton sans lui.
+    api("org.springframework.boot:spring-boot-starter-security")
+    api("org.springframework.security:spring-security-oauth2-resource-server")
+    api("org.springframework.security:spring-security-oauth2-jose")
+
     // `MockHttpServletRequest` et consorts : le filtre se teste sans démarrer de conteneur.
     testImplementation("org.springframework:spring-test")
 
