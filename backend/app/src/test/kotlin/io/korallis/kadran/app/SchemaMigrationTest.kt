@@ -52,6 +52,7 @@ class SchemaMigrationTest {
                 "20260821_KDN-27_04",
                 "20260822_KDN-136_01",
                 "20260822_KDN-137_01",
+                "20260822_KDN-35_01",
             )
         // `schema_baseline` a été déplacée dans `kadran` par KDN-136 : non qualifiée, cette
         // requête chercherait `public.schema_baseline`, qui n'existe plus.
@@ -82,7 +83,7 @@ class SchemaMigrationTest {
     fun `rolling back leaves the database as the previous changeset left it`() {
         withLiquibase { liquibase ->
             liquibase.rollback(
-                CHECK_CHANGESETS + SCHEMA_CHANGESETS + IDENTITY_CHANGESETS,
+                REVENUE_RECORD_CHANGESETS + CHECK_CHANGESETS + SCHEMA_CHANGESETS + IDENTITY_CHANGESETS,
                 null,
                 Contexts(),
                 LabelExpression(),
@@ -135,6 +136,13 @@ class SchemaMigrationTest {
 
         /** Le changeset de retrait des CHECK (KDN-137), appliqué après celui-ci. */
         const val CHECK_CHANGESETS = 1
+
+        /**
+         * Le changeset `revenue_record` (KDN-35), le plus récent : son rollback doit être
+         * inclus en tête, avant celui de KDN-137, sous peine de laisser `tenant` (KDN-27_01)
+         * hors du compte de rollback ci-dessous et de faire échouer l'assertion qui suit.
+         */
+        const val REVENUE_RECORD_CHANGESETS = 1
 
         // Testcontainers 2.x a deplace le conteneur dans `org.testcontainers.postgresql` et
         // abandonne le parametre de type recursif : `PostgreSQLContainer<Nothing>` devient
