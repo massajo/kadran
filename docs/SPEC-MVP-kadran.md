@@ -1,10 +1,16 @@
 # Kadran — Spec MVP
 ### Plateforme d'analyse de rentabilité pour chauffeurs VTC
 
-**Version :** 1.9
+**Version :** 1.10
 **Destinataire :** Claude Code (implémentation) + Claude Design (maquettes)
 **Stack :** Next.js 15 (App Router) / React 19 / shadcn-ui — Spring Boot 4.1 / Kotlin 2.2 / Gradle 9 / JDK 21 / PostgreSQL 18 / Liquibase
 
+> **v1.9 → v1.10** : §9.3 **trois schémas PostgreSQL** (ADR-013, KDN-136) — `kadran`
+> (opérationnel, y compris les tables de Liquibase), `audit` (`entity_change`/`audit_event`),
+> `credentials` (comptes et jetons, KDN-18/19) — séparés avant que l'audit et
+> l'authentification n'existent · **la création de schéma n'est jamais la responsabilité de
+> Liquibase**, toujours externe (`db/bootstrap/create-schemas.sql`).
+>
 > **v1.8 → v1.9** : §10.3 **passage à Spring Boot 4.1** (KDN-127), qui entraîne Spring Framework 7, Tomcat 11, Jackson 3, Liquibase 5 et Testcontainers 2 · la première incompatibilité de chaîne de construction est **réécrite** : elle survit à la majeure mais s'est inversée, le BOM ne rétrograde plus le compilateur Kotlin, il en promeut une partie · `spring-boot-starter-web` déprécié au profit de `-webmvc`, l'auto-configuration Liquibase sortie du cœur.
 >
 > **v1.7 → v1.8** : §11.2 — le titre de commit porte `[KDN-<n>]` en tête de description, après le préfixe Conventional Commits · §11.1 — le séparateur des fichiers et identifiants Liquibase passe à l'underscore, et les exemples sont renumérotés sur les issues réellement créées · §8.4 — l'identifiant de changeset de `audit_event` portait `kadran:20260818-04-01`, sans trigramme, contraire à l'ADR-007.
@@ -935,6 +941,34 @@ RevenueRecord → tenant_id + driver_id + platform
 
 `tenant_id` sur **toutes** les tables métier, `NOT NULL`, en tête de chaque index composite.
 
+**Trois schémas PostgreSQL, pas un seul (ADR-013).** Les tables ci-dessus vivent dans `kadran` —
+le schéma opérationnel générique : `schema_baseline`, `tenant`, `driver`, `membership`,
+`vehicle` aujourd'hui, `outing`, `revenue_record`, `cost_model`… demain, pour les contextes
+autres que l'identité et l'authentification. `audit_event` et `entity_change` (§8.4) vivent dans
+`audit` — cycle de vie et permissions distincts : rétention fixe de cinq ans côté `audit_event`
+contre configurable côté `entity_change`, rôle applicatif restreint à `INSERT`/`SELECT` sur les
+deux (§8.4.4). Le compte et les jetons de rafraîchissement que KDN-19 branchera sur le port
+`CredentialsFinder` de KDN-18 vivent dans `credentials` — même motif que l'audit, appliqué aux
+secrets d'authentification, qui appellent des `GRANT` plus stricts que le reste de l'opérationnel.
+Nommé `credentials` plutôt que `auth` : Supabase réserve déjà `auth` (ainsi que `storage`,
+`realtime`, `vault`, `extensions`…) sur tout projet Postgres qu'il gère — un nom générique évite
+la collision si ce chemin est un jour emprunté. Séparer les trois avant que l'audit et
+l'authentification n'existent évite d'avoir à migrer des lignes sensibles une fois écrites.
+
+`databasechangelog`/`databasechangeloglock` vivent dans `kadran`, comme le reste de
+l'opérationnel — configuré par `spring.liquibase.liquibase-schema`, jamais par un changeset.
+**La création des trois schémas n'est jamais la responsabilité de Liquibase** : un changeset ne
+peut pas créer le schéma où `databasechangelog` s'inscrit lui-même (problème de l'œuf et de la
+poule, un changeset ne s'exécutant qu'après que Liquibase a ouvert sa première connexion), et ça
+rendrait le rôle applicatif dépendant du privilège `CREATE SCHEMA` — gênant sur une base
+provisionnée hors du dépôt (plateforme managée, équipe infra). La création est donc externe,
+portée par un script canonique unique (`db/bootstrap/create-schemas.sql`), invoqué différemment
+selon le contexte : monté dans `/docker-entrypoint-initdb.d/` pour `docker/compose.yml`,
+`PostgreSQLContainer.withInitScript(...)` pour les tests Testcontainers, exécuté via `psql` avant
+les pas Liquibase pour `ci-liquibase.yml`. `TenantScopedTable.named(...)` qualifie `kadran` par
+défaut ; le fournir explicitement (`schema = "audit"` ou `"credentials"`) est le seul geste requis
+pour déclarer une table d'un autre schéma.
+
 ### 9.4 Onboarding d'un tenant
 
 Assistant en 5 étapes, brouillon sauvegardé à chaque étape (l'abandon en cours est le premier risque d'activation). État `Tenant.onboardingStatus` persisté et reprenable.
@@ -1436,6 +1470,7 @@ Les issues `[spike]` portent le label `needs-sample` et sont **bloquantes** dans
 | ADR-010 | **Monorepo** back + front + design + docs (§10.6). Motif principal : `ci-openapi` vérifie dans une même PR que les types front correspondent au contrat back. Choix réversible — extraire `web/` reste peu coûteux, fusionner deux dépôts ne l'est pas | **Acté** |
 | ADR-011 | **Observabilité** : logs JSON structurés sans PII, métriques Prometheus **sans dimension `tenant_id`**, port de management séparé, audit distinct des logs (§10.7) | **Acté** |
 | ADR-012 | **Audit scinde en deux journaux** : `entity_change` pour l'historique metier (diff par champ), `audit_event` pour la tracabilite reglementaire, y compris les lectures (§8.4) | **Acté** |
+| ADR-013 | **Trois schémas PostgreSQL** : `kadran` (opérationnel, y compris les tables de Liquibase), `audit` (`entity_change`, `audit_event`) et `credentials` (comptes, jetons) — séparés avant que l'audit et l'authentification n'existent pour ne pas migrer après coup ; création de schéma toujours externe à Liquibase (§9.3, §8.4) | **Acté** |
 | D1 | Les colonnes `Début`/`Fin` de Driversnote portent-elles une heure ? | **Bloquant — KDN-37** |
 | D2 | L'export Bolt *Trips* contient-il la distance et les horaires par course ? | Ouvert — KDN-48 |
 | D3 | Référentiel de coûts sectoriels par défaut | À constituer |

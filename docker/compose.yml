@@ -94,6 +94,11 @@ services:
       # sous `/var/lib/postgresql` (et non plus directement dans un `.../data` monté),
       # pour permettre `pg_upgrade --link` sans franchir de frontière de point de montage.
       - postgres_data:/var/lib/postgresql
+      # Crée les schémas `kadran`/`audit` et épingle le search_path du rôle `kadran` avant
+      # que Liquibase ne s'y connecte (KDN-136) — l'image officielle exécute tout script
+      # sous `/docker-entrypoint-initdb.d/` au tout premier démarrage, sur un volume vierge
+      # seulement. `down -v` redéclenche ce script au prochain `up`.
+      - ../backend/platform/src/main/resources/db/bootstrap/create-schemas.sql:/docker-entrypoint-initdb.d/00-create-schemas.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kadran -d kadran"]
       interval: 5s

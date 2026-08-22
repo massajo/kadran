@@ -14,6 +14,18 @@ spring:
   # diverger silencieusement. Le changelog maître est le seul point d'entrée (spec §11.1).
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.xml
+    # **Explicite, et non accessoire** (KDN-136). Le rôle applicatif s'appelle `kadran`
+    # (`KADRAN_DB_USER`), et depuis que le schéma opérationnel porte le même nom, PostgreSQL
+    # résout `"$user"` — premier élément du `search_path` par défaut, `"$user", public` — sur
+    # ce schéma désormais réel. `current_schema()` y bascule donc silencieusement dès que
+    # `kadran` existe, et Liquibase, livré sans indication contraire, y chercherait ses
+    # propres `databasechangelog`/`databasechangeloglock` — vides, puisqu'ils vivent dans
+    # `public` (hors périmètre applicatif). Sans ce réglage, **tout redémarrage suivant la
+    # première migration** croirait la base vierge et rejouerait le changelog entier contre
+    # des objets déjà là. Constaté en vérifiant KDN-136 sur une base réelle : un second
+    # `liquibaseUpdate` créait de lui-même un `kadran.databasechangelog` vide plutôt que de
+    # lire celui de `public`.
+    liquibase-schema: kadran
 
   # La journée d'exploitation et toutes les agrégations reposent sur Europe/Paris (§4.3).
   jackson:
