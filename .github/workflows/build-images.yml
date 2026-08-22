@@ -43,11 +43,17 @@ jobs:
   publish:
     name: ${{ matrix.image }}
     runs-on: ubuntu-latest
-    # Le build `linux/arm64` du backend passe par l'émulation QEMU (cf. le bloc
-    # « COÛT DU MULTI-ARCH » plus bas) : mesuré à 37 min à froid sur une machine
-    # 8 vCPU, donc sensiblement plus sur un runner hébergé qui en a 2 ou 4.
-    # 120 min couvre un build à froid sans cache ; le défaut de 6 h laisserait
-    # un runner tourner une demi-journée sur un build parti en vrille.
+    # Depuis KDN-130, le poste dominant n'est plus le backend émulé (45 min à
+    # froid, ramenés à 18 s) mais `kadran-web`, dont les étages `deps` et
+    # `builder` restent bâtis sous QEMU par nécessité — cf. le bloc « COÛT DU
+    # MULTI-ARCH » plus bas et l'en-tête de `web/Dockerfile`. Mesuré à ~7 min à
+    # froid sur une machine 8 vCPU, donc sensiblement plus sur un runner hébergé
+    # qui en a 2 ou 4.
+    #
+    # Le plafond reste large à dessein : il n'est pas dimensionné sur le temps
+    # nominal mais sur le pire cas plausible, et sa seule fonction est d'arrêter
+    # un build parti en vrille avant que le défaut de 6 h ne laisse un runner
+    # tourner une demi-journée.
     timeout-minutes: 120
     strategy:
       # Les deux images sont indépendantes : une vulnérabilité dans l'une ne
@@ -209,29 +215,44 @@ jobs:
       # COÛT DU MULTI-ARCH — mesuré, à connaître avant de toucher à ce bloc.
       #
       # Les runners GitHub hébergés sont amd64 : `linux/arm64` est émulé par
-      # QEMU. Mesures à froid sur une machine 8 vCPU / 15 Go (un runner hébergé
-      # en a 2 ou 4 : compter un facteur 2 à 4 de plus) :
+      # QEMU. Mesures sur une machine 8 vCPU / 15 Go, chaque chiffre pris sur un
+      # builder NEUF — donc à cache totalement vide, comme un runner éphémère.
+      # Un runner hébergé en a 2 ou 4 : compter un facteur 2 à 4 de plus.
       #
-      #   kadran-web      amd64 natif   41 s   ·   arm64 émulé    363 s  (~6 min)
-      #   kadran-backend  amd64 natif  110 s   ·   arm64 émulé   2219 s (~37 min)
+      #                    étape 1 (amd64, contrôle)   étape 2 (multi-arch)
+      #   avant KDN-130
+      #     kadran-web              81 s                      452 s
+      #     kadran-backend         390 s                     2676 s  (~45 min)
+      #   après KDN-130
+      #     kadran-web              61 s                      425 s
+      #     kadran-backend         232 s                       18 s
       #
-      # Détail du backend émulé : 1667 s sur `:app:dependencies` et 528 s sur
-      # `:app:bootJar`. Le poste dominant est donc la résolution des
-      # dépendances, pas la compilation.
+      # Ce qui a changé : l'étage de build de `backend/Dockerfile` est épinglé
+      # sur `--platform=$BUILDPLATFORM`. Un JAR est indépendant de
+      # l'architecture — vérifié, les quatre couches Spring Boot sont les mêmes
+      # octets dans l'image amd64 et dans l'arm64 — donc Gradle tourne une seule
+      # fois, en natif, et l'étape 2 se réduit à `apk upgrade` et à des `COPY`
+      # sous émulation. L'écart des étapes 1 relève du débit de téléchargement
+      # des dépendances Gradle, pas du correctif : elles font le même travail.
       #
-      # Piège de cache à connaître : le `RUN --mount=type=cache` qui porte
-      # `GRADLE_USER_HOME` dans `backend/Dockerfile` n'est PAS exporté par
+      # `kadran-web` ne bouge PAS, et ce n'est pas un oubli : la sortie
+      # `standalone` de Next.js embarque des binaires natifs (`sharp`), donc ses
+      # étages `deps` et `builder` doivent rester bâtis pour l'architecture
+      # cible. La démonstration est en tête de `web/Dockerfile`.
+      #
+      # Piège de cache toujours d'actualité : le `RUN --mount=type=cache` qui
+      # porte `GRADLE_USER_HOME` dans `backend/Dockerfile` n'est PAS exporté par
       # `type=gha` — les caches de montage ne font pas partie des couches. Sur
-      # un runner éphémère il démarre donc toujours vide. Si la couche
+      # un runner éphémère il démarre donc toujours vide, et si la couche
       # `:app:dependencies` est un succès de cache (aucun `build.gradle.kts`
-      # modifié) mais que `:app:bootJar` doit se rejouer, c'est `bootJar` qui
-      # paie le retéléchargement complet.
+      # modifié) alors que `:app:bootJar` doit se rejouer, c'est `bootJar` qui
+      # paie le retéléchargement complet. Ce retéléchargement se paie désormais
+      # une fois, en natif, pour les deux architectures — au lieu de deux fois,
+      # dont une émulée.
       #
-      # Pistes connues si le temps devient un problème, toutes hors périmètre
-      # de KDN-13 et à traiter par une issue dédiée : runner ARM natif ;
-      # découpage « build du JAR une fois en natif » puis « assemblage de
-      # l'image par architecture » (change le contrat de `backend/Dockerfile`) ;
-      # persistance des caches de montage entre runs.
+      # Pistes restantes si le temps redevient un problème, à traiter par une
+      # issue dédiée : runner ARM natif ; persistance des caches de montage
+      # entre runs.
       # ---------------------------------------------------------------------
       - name: Construire le multi-arch et publier sur GHCR
         id: push

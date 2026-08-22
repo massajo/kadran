@@ -12,6 +12,31 @@
 #     --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 #     -t kadran-web:local .
 
+# AUCUN `--platform=$BUILDPLATFORM` ici, contrairement à `backend/Dockerfile`
+# (KDN-130) — et ce n'est pas un oubli.
+#
+# Côté back, l'étage de build est épinglé sur l'architecture de la machine parce
+# qu'un JAR est le même octet quelle que soit la cible. Le raisonnement ne se
+# transpose PAS ici : la sortie `standalone` de Next.js embarque des binaires
+# natifs. Constaté sur les images produites, pas supposé — les deux
+# architectures ne contiennent pas le même fichier :
+#
+#   amd64  @img/sharp-linuxmusl-x64/lib/sharp-linuxmusl-x64-0.35.3.node
+#          @img/sharp-libvips-linuxmusl-x64/lib/libvips-cpp.so.8.18.3
+#   arm64  @img/sharp-linuxmusl-arm64/lib/sharp-linuxmusl-arm64-0.35.3.node
+#          @img/sharp-libvips-linuxmusl-arm64/lib/libvips-cpp.so.8.18.3
+#
+# L'en-tête ELF du premier porte `e_machine = 0x3e` (x86-64). `sharp` est une
+# dépendance optionnelle de `next` (l'optimiseur d'images de production) ; pnpm
+# n'installe que la variante correspondant à la plateforme courante, et le
+# traçage de fichiers de Next.js la recopie dans `standalone`.
+#
+# Épingler cet étage sur la machine de build livrerait donc un `.node` x86-64
+# dans l'image arm64. Le conteneur démarrerait quand même — `sharp` n'est requis
+# qu'à la première requête `/_next/image` — et casserait plus tard, à
+# l'exécution, sur une erreur de classe ELF. Une panne différée et silencieuse
+# est pire qu'un build lent : les étages `deps` et `builder` restent construits
+# pour l'architecture cible, émulation comprise.
 FROM node:22-alpine AS base
 # corepack embarqué dans node:22-alpine échoue sur une clé de signature pnpm
 # périmée ; voir CLAUDE.md / issue KDN-7.

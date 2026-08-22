@@ -12,7 +12,31 @@
 #     --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 #     -t kadran-backend:local .
 
-FROM eclipse-temurin:21-jdk-alpine AS build
+# --platform=$BUILDPLATFORM : cet étage tourne TOUJOURS sur l'architecture de la
+# machine qui construit, jamais sur celle de l'image produite (KDN-130).
+#
+# Un JAR Java est indépendant de l'architecture : `bootJar` compile vers du
+# bytecode, et aucune dépendance du back n'embarque de binaire natif (le pilote
+# PostgreSQL, Tomcat embarqué, Micrometer et Liquibase sont du Java pur ; aucune
+# n'est résolue par classificateur `os`/`arch`). Faire tourner Gradle une
+# seconde fois sous QEMU pour produire le même octet est donc du calcul perdu —
+# et le poste dominant y est le TÉLÉCHARGEMENT des dépendances, pas la
+# compilation : 1667 s sous émulation contre 528 s pour `bootJar` lui-même.
+#
+# Piège à connaître avant d'y toucher : le `RUN --mount=type=cache` ci-dessous
+# n'est PAS une couche, `type=gha` ne l'exporte pas et il démarre donc vide sur
+# tout runner éphémère. Quand la couche `:app:dependencies` est un succès de
+# cache mais que `bootJar` doit se rejouer, c'est `bootJar` qui repaie le
+# téléchargement intégral. Épingler la plateforme fait que ce téléchargement se
+# paie une fois, en natif, pour les deux architectures — au lieu de deux fois,
+# dont une émulée.
+#
+# Conséquence de cache : cet étage devient identique pour `linux/amd64` et
+# `linux/arm64` (même plateforme, mêmes entrées), donc BuildKit ne l'exécute
+# qu'une fois et les deux images finales n'en font que des `COPY`. L'émulation
+# ne subsiste que sur l'étage `runtime`, où elle sert enfin à quelque chose :
+# vérifier que l'image démarre vraiment.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk-alpine AS build
 WORKDIR /workspace
 
 # --- Fichiers de configuration Gradle seuls : couche mise en cache tant que ---
