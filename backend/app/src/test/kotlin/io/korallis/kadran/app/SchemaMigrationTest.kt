@@ -43,18 +43,36 @@ class SchemaMigrationTest {
                 String::class.java,
             )
 
-        applied shouldBe listOf("20260819_KDN-14_01")
+        applied shouldBe
+            listOf(
+                "20260819_KDN-14_01",
+                "20260821_KDN-27_01",
+                "20260821_KDN-27_02",
+                "20260821_KDN-27_03",
+                "20260821_KDN-27_04",
+            )
         jdbc.queryForObject("SELECT application FROM schema_baseline", String::class.java) shouldBe "kadran"
     }
 
+    /**
+     * Le rollback est **exécuté**, pas seulement écrit. Il l'est en deux temps parce que
+     * l'ordre inverse est le seul qui respecte les clés étrangères : `membership` référence
+     * `driver`, qui référence `tenant`. Un `--rollback` qui ne serait vérifié que par lecture
+     * laisserait passer exactement ce genre d'inversion.
+     */
     @Test
-    fun `le rollback du premier changeset defait la table de controle`() {
+    fun `rolling back leaves the database as the previous changeset left it`() {
         withLiquibase { liquibase ->
+            liquibase.rollback(IDENTITY_CHANGESETS, null, Contexts(), LabelExpression())
+            IDENTITY_TABLES.forEach { tableExists(it) shouldBe false }
+            tableExists("schema_baseline") shouldBe true
+
             liquibase.rollback(1, null, Contexts(), LabelExpression())
             tableExists("schema_baseline") shouldBe false
 
             liquibase.update(Contexts(), LabelExpression())
             tableExists("schema_baseline") shouldBe true
+            IDENTITY_TABLES.forEach { tableExists(it) shouldBe true }
         }
     }
 
@@ -73,6 +91,10 @@ class SchemaMigrationTest {
 
     private companion object {
         const val CHANGELOG = "db/changelog/db.changelog-master.xml"
+
+        /** Les quatre tables métier de KDN-27 et le nombre de changesets qui les apportent. */
+        val IDENTITY_TABLES = listOf("tenant", "driver", "membership", "vehicle")
+        const val IDENTITY_CHANGESETS = 4
 
         // Testcontainers 2.x a deplace le conteneur dans `org.testcontainers.postgresql` et
         // abandonne le parametre de type recursif : `PostgreSQLContainer<Nothing>` devient
