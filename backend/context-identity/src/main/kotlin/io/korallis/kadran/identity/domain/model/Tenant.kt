@@ -63,6 +63,15 @@ data class Tenant(
     val siren: Siren,
     val onboardingStatus: OnboardingStatus,
     val closedAt: Instant?,
+    /**
+     * Date d'enregistrement, portée par l'agrégat depuis KDN-137.
+     *
+     * Sans elle, [close] ne pouvait valider que la clôture n'est pas antérieure à la création
+     * — la seule table où cette borne vivait était `ck_tenant_closed_after_creation`, un
+     * `CHECK` sans équivalent applicatif. La colonne existait déjà en base (`DEFAULT now()`) ;
+     * ce n'est que la lecture qui manquait pour que le domaine tienne seul l'invariant.
+     */
+    val createdAt: Instant,
 ) {
     /** Un exploitant clos ne reçoit plus ni import, ni invitation, ni changement de rôle. */
     val isClosed: Boolean get() = closedAt != null
@@ -87,9 +96,15 @@ data class Tenant(
      *
      * @throws IllegalStateException si la clôture a déjà eu lieu — une seconde clôture
      *   émettrait un second événement d'audit pour un fait unique.
+     * @throws IllegalArgumentException si [at] précède [createdAt] — un exploitant ne peut pas
+     *   cesser d'exploiter avant d'avoir commencé (ex-`ck_tenant_closed_after_creation`,
+     *   retirée en KDN-137).
      */
     fun close(at: Instant): Transition<Tenant> {
         check(!isClosed) { "l'exploitant $id est deja clos depuis $closedAt" }
+        require(!at.isBefore(createdAt)) {
+            "l'exploitant $id ne peut pas cloturer le $at, avant sa creation le $createdAt"
+        }
         return Transition(copy(closedAt = at), TenantClosed(id, at))
     }
 
@@ -106,7 +121,8 @@ data class Tenant(
             siren: Siren,
             at: Instant,
         ): Transition<Tenant> {
-            val tenant = Tenant(id, legalName, siren, OnboardingStatus.IDENTITY, closedAt = null)
+            val tenant =
+                Tenant(id, legalName, siren, OnboardingStatus.IDENTITY, closedAt = null, createdAt = at)
             return Transition(tenant, TenantRegistered(id, siren, at))
         }
     }

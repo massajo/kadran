@@ -51,6 +51,7 @@ class SchemaMigrationTest {
                 "20260821_KDN-27_03",
                 "20260821_KDN-27_04",
                 "20260822_KDN-136_01",
+                "20260822_KDN-137_01",
             )
         // `schema_baseline` a été déplacée dans `kadran` par KDN-136 : non qualifiée, cette
         // requête chercherait `public.schema_baseline`, qui n'existe plus.
@@ -64,7 +65,8 @@ class SchemaMigrationTest {
      * Le rollback est **exécuté**, pas seulement écrit. Il l'est en trois temps parce que
      * l'ordre inverse est le seul qui respecte les dépendances :
      *
-     * 1. Le changeset KDN-136 d'abord — son rollback ramène les cinq tables dans `public`
+     * 1. Le changeset KDN-137 d'abord — son rollback réécrit les neuf `CHECK` sur des tables
+     *    qui doivent encore exister — puis KDN-136, qui ramène les cinq tables dans `public`
      *    (il ne touche plus aux schémas eux-mêmes, créés hors Liquibase). Sans ce premier
      *    pas, les `--rollback` des changesets KDN-27 (`DROP TABLE tenant`, non qualifiés)
      *    chercheraient une table dans `public` alors qu'elle vit encore dans `kadran`, et
@@ -79,7 +81,12 @@ class SchemaMigrationTest {
     @Test
     fun `rolling back leaves the database as the previous changeset left it`() {
         withLiquibase { liquibase ->
-            liquibase.rollback(SCHEMA_CHANGESETS + IDENTITY_CHANGESETS, null, Contexts(), LabelExpression())
+            liquibase.rollback(
+                CHECK_CHANGESETS + SCHEMA_CHANGESETS + IDENTITY_CHANGESETS,
+                null,
+                Contexts(),
+                LabelExpression(),
+            )
             IDENTITY_TABLES.forEach { tableExists("public", it) shouldBe false }
             tableExists("public", "schema_baseline") shouldBe true
 
@@ -125,6 +132,9 @@ class SchemaMigrationTest {
 
         /** Le changeset de séparation des schémas (KDN-136), appliqué après les quatre ci-dessus. */
         const val SCHEMA_CHANGESETS = 1
+
+        /** Le changeset de retrait des CHECK (KDN-137), appliqué après celui-ci. */
+        const val CHECK_CHANGESETS = 1
 
         // Testcontainers 2.x a deplace le conteneur dans `org.testcontainers.postgresql` et
         // abandonne le parametre de type recursif : `PostgreSQLContainer<Nothing>` devient
