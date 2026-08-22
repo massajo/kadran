@@ -68,3 +68,33 @@ value class DriverId(
         fun of(raw: String): DriverId = DriverId(UUID.fromString(raw))
     }
 }
+
+/**
+ * Identifiant d'un relevé de revenu (KDN-35, spec §4.4, §7.3).
+ *
+ * ### Pourquoi il vit ici plutôt que dans `context-activity`
+ *
+ * `RevenueRecord` lui-même n'existe pas encore — il est construit en parallèle sur une autre
+ * branche (KDN-35). `Outing.linkedRevenue` (KDN-34, spec §4.4) doit pourtant pouvoir référencer
+ * un relevé de revenu sans attendre cette livraison, et sans que les deux travaux ne se
+ * disputent le même fichier de `domain/model`. Isoler l'identifiant dans le shared kernel —
+ * comme [TenantId] et [DriverId], pour la même raison de découplage — laisse chaque agrégat
+ * naître dans son propre fichier, indépendamment de l'ordre de livraison des deux issues.
+ *
+ * Ce n'est **pas** une référence enrichie : aucun score ni statut de rapprochement n'est porté
+ * ici. Cette capacité relève de KDN-75, hors du périmètre de KDN-34.
+ */
+@JvmInline
+value class RevenueRecordId(
+    val value: UUID,
+) {
+    override fun toString(): String = value.toString()
+
+    companion object {
+        /** Identifiant neuf, pour l'enregistrement d'un relevé de revenu. */
+        fun next(): RevenueRecordId = RevenueRecordId(UUID.randomUUID())
+
+        /** @throws IllegalArgumentException si [raw] n'est pas un UUID. */
+        fun of(raw: String): RevenueRecordId = RevenueRecordId(UUID.fromString(raw))
+    }
+}

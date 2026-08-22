@@ -52,6 +52,7 @@ class SchemaMigrationTest {
                 "20260821_KDN-27_04",
                 "20260822_KDN-136_01",
                 "20260822_KDN-137_01",
+                "20260822_KDN-34_01",
                 "20260822_KDN-35_01",
             )
         // `schema_baseline` a été déplacée dans `kadran` par KDN-136 : non qualifiée, cette
@@ -66,10 +67,11 @@ class SchemaMigrationTest {
      * Le rollback est **exécuté**, pas seulement écrit. Il l'est en trois temps parce que
      * l'ordre inverse est le seul qui respecte les dépendances :
      *
-     * 1. Le changeset KDN-137 d'abord — son rollback réécrit les neuf `CHECK` sur des tables
-     *    qui doivent encore exister — puis KDN-136, qui ramène les cinq tables dans `public`
-     *    (il ne touche plus aux schémas eux-mêmes, créés hors Liquibase). Sans ce premier
-     *    pas, les `--rollback` des changesets KDN-27 (`DROP TABLE tenant`, non qualifiés)
+     * 1. `revenue_record` (KDN-35) puis `outing` (KDN-34) d'abord — les deux plus récents —
+     *    puis KDN-137, qui réécrit les neuf `CHECK` sur des tables qui doivent encore
+     *    exister, puis KDN-136, qui ramène les cinq tables dans `public` (il ne touche plus
+     *    aux schémas eux-mêmes, créés hors Liquibase). Sans ce premier pas, les
+     *    `--rollback` des changesets KDN-27 (`DROP TABLE tenant`, non qualifiés)
      *    chercheraient une table dans `public` alors qu'elle vit encore dans `kadran`, et
      *    échoueraient.
      * 2. Les quatre changesets KDN-27, dans l'ordre inverse des clés étrangères : `membership`
@@ -82,12 +84,10 @@ class SchemaMigrationTest {
     @Test
     fun `rolling back leaves the database as the previous changeset left it`() {
         withLiquibase { liquibase ->
-            liquibase.rollback(
-                REVENUE_RECORD_CHANGESETS + CHECK_CHANGESETS + SCHEMA_CHANGESETS + IDENTITY_CHANGESETS,
-                null,
-                Contexts(),
-                LabelExpression(),
-            )
+            val allButTheFirstChangeset =
+                REVENUE_RECORD_CHANGESETS + OUTING_CHANGESETS + CHECK_CHANGESETS +
+                    SCHEMA_CHANGESETS + IDENTITY_CHANGESETS
+            liquibase.rollback(allButTheFirstChangeset, null, Contexts(), LabelExpression())
             IDENTITY_TABLES.forEach { tableExists("public", it) shouldBe false }
             tableExists("public", "schema_baseline") shouldBe true
 
@@ -143,6 +143,9 @@ class SchemaMigrationTest {
          * hors du compte de rollback ci-dessous et de faire échouer l'assertion qui suit.
          */
         const val REVENUE_RECORD_CHANGESETS = 1
+
+        /** Le changeset `outing` (KDN-34), appliqué juste avant `revenue_record`. */
+        const val OUTING_CHANGESETS = 1
 
         // Testcontainers 2.x a deplace le conteneur dans `org.testcontainers.postgresql` et
         // abandonne le parametre de type recursif : `PostgreSQLContainer<Nothing>` devient

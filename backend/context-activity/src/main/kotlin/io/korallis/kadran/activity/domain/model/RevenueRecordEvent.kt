@@ -31,13 +31,3 @@ data class RevenueRecorded(
     val grain: Grain,
     override val occurredAt: Instant,
 ) : RevenueRecordEvent
-
-/**
- * Le nouvel état d'un agrégat et l'événement qui le justifie, rendus ensemble (même patron
- * que `Transition<IdentityEvent>` de KDN-27). Rendre l'un sans l'autre laisserait à
- * l'appelant le soin de ne pas les dissocier — ce qu'il finirait par faire, silencieusement.
- */
-data class Transition<out T>(
-    val state: T,
-    val event: RevenueRecordEvent,
-)
