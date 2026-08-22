@@ -41,6 +41,27 @@ logging:
         traceId: trace_id
         spanId: span_id
 
+# Authentification (spec §9.2, §10.3, §10.6).
+#
+# **Aucun secret n'est ecrit ici, pas meme un secret « de developpement ».** `KADRAN_JWT_SECRET`
+# vide fait tirer une cle aleatoire au demarrage : le poste de developpement fonctionne sans
+# configuration, et un deploiement qui aurait oublie la variable se trahit au premier
+# redemarrage — tous les jetons deviennent invalides — au lieu de tourner des mois avec une cle
+# lisible dans un depot public. Voir `JwtSecretKeySource`.
+kadran:
+  security:
+    jwt:
+      secret: ${KADRAN_JWT_SECRET:}
+      issuer: ${KADRAN_JWT_ISSUER:kadran}
+      # Court : un jeton d'acces n'est pas revocable, sa fenetre d'abus vaut exactement sa
+      # duree de vie. C'est le jeton de rafraichissement, lui revocable, qui porte la session.
+      access-token-ttl: ${KADRAN_JWT_ACCESS_TTL:15m}
+      refresh-token-ttl: ${KADRAN_JWT_REFRESH_TTL:30d}
+    password:
+      # A relever au fil du materiel, jamais a abaisser : les empreintes existantes portent
+      # leur propre cout et restent verifiables.
+      bcrypt-strength: ${KADRAN_BCRYPT_STRENGTH:12}
+
 server:
   port: 8080
 

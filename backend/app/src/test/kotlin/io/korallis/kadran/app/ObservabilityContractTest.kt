@@ -1,7 +1,10 @@
 package io.korallis.kadran.app
 
+import io.korallis.kadran.platform.security.AccountCredentials
+import io.korallis.kadran.platform.security.AccountId
+import io.korallis.kadran.platform.security.CredentialsFinder
+import io.korallis.kadran.platform.security.MembershipRole
 import io.korallis.kadran.platform.tenancy.TenantId
-import io.korallis.kadran.platform.web.TenantIdResolver
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
@@ -16,7 +19,7 @@ import org.springframework.boot.test.web.server.LocalManagementPort
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection
 import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Primary
+import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RestController
@@ -43,7 +46,12 @@ import java.util.UUID
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     // Port de management **distinct** du port applicatif, comme en production ; à zéro pour
     // ne pas dépendre d'un 8081 libre sur la machine qui exécute les tests.
-    properties = ["management.server.port=0"],
+    properties = [
+        "management.server.port=0",
+        // Le cout de production ferait durer chaque connexion de ce test une centaine de
+        // millisecondes pour ne rien prouver de plus (voir `PasswordProperties`).
+        "kadran.security.password.bcrypt-strength=4",
+    ],
 )
 @Testcontainers
 @ExtendWith(OutputCaptureExtension::class)
@@ -56,7 +64,14 @@ class ObservabilityContractTest {
 
     @Test
     fun `prometheus is not served on the application port`() {
-        get(applicationPort, "/actuator/prometheus").statusCode() shouldBe HTTP_NOT_FOUND
+        // Toujours 404 depuis KDN-18, et pas 401 : la chaine de securite *permet* le chemin —
+        // il le faut, elle s'applique aussi au port de management — mais Actuator n'est pas
+        // cartographie ici. C'est bien l'absence d'exposition qui est verifiee, pas un refus
+        // d'authentification qui la masquerait.
+        val response = get(applicationPort, "/actuator/prometheus")
+
+        response.statusCode() shouldBe HTTP_NOT_FOUND
+        response.body() shouldNotContain "jvm_memory_used_bytes"
     }
 
     @Test
@@ -90,7 +105,7 @@ class ObservabilityContractTest {
 
     @Test
     fun `every log line is JSON carrying correlation_id and tenant_id`(output: CapturedOutput) {
-        get(applicationPort, "/api/outings/$OUTING_ID")
+        get(applicationPort, "/api/outings/$OUTING_ID", accessToken())
 
         val ligne = jsonLineContaining(output, ACCESS_MESSAGE)
         ligne shouldContain "\"correlation_id\""
@@ -99,7 +114,7 @@ class ObservabilityContractTest {
 
     @Test
     fun `the access line carries the templated route and never the identifier`(output: CapturedOutput) {
-        get(applicationPort, "/api/outings/$OUTING_ID")
+        get(applicationPort, "/api/outings/$OUTING_ID", accessToken())
 
         val ligne = jsonLineContaining(output, ACCESS_MESSAGE)
         ligne shouldContain "\"http_route\":\"/api/outings/{id}\""
@@ -121,25 +136,63 @@ class ObservabilityContractTest {
     private fun get(
         port: Int,
         path: String,
-    ): HttpResponse<String> =
-        CLIENT.send(
-            HttpRequest.newBuilder(URI.create("http://127.0.0.1:$port$path")).GET().build(),
-            HttpResponse.BodyHandlers.ofString(),
-        )
+        bearerToken: String? = null,
+    ): HttpResponse<String> {
+        val request =
+            HttpRequest
+                .newBuilder(URI.create("http://127.0.0.1:$port$path"))
+                .apply { bearerToken?.let { header(AUTHORIZATION, "Bearer $it") } }
+                .GET()
+                .build()
+        return CLIENT.send(request, HttpResponse.BodyHandlers.ofString())
+    }
 
     /**
-     * Un tenant fixe et une route à variable de chemin : le premier prouve que le MDC de
-     * KDN-15 ressort dans le JSON, la seconde qu'une URI porteuse d'identifiant se journalise
-     * templatisée. Aucun contrôleur de production n'a encore de variable de chemin.
+     * Un jeton réel, obtenu par le vrai endpoint de connexion.
+     *
+     * C'est ce qui rend le contrôle du `tenant_id` en MDC plus fort qu'avant KDN-18 : le
+     * tenant n'est plus posé par un résolveur de test, il traverse la revendication du jeton,
+     * puis le filtre de tenant, puis le format de log structuré.
+     */
+    private fun accessToken(): String {
+        val response =
+            CLIENT.send(
+                HttpRequest
+                    .newBuilder(URI.create("http://127.0.0.1:$applicationPort/api/auth/login"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("""{"login":"$LOGIN","password":"$PASSWORD"}"""))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+        response.statusCode() shouldBe HTTP_OK
+        return TOKEN_PATTERN.find(response.body())?.groupValues?.get(1)
+            ?: error("la reponse de connexion ne porte pas de jeton : ${response.body()}")
+    }
+
+    /**
+     * Un compte réel et une route à variable de chemin : le premier prouve que le tenant du
+     * jeton ressort en MDC dans le JSON, la seconde qu'une URI porteuse d'identifiant se
+     * journalise templatisée. Aucun contrôleur de production n'a encore de variable de chemin.
+     *
+     * **Le résolveur de tenant n'est plus remplacé.** Depuis KDN-18, le vrai lit la
+     * revendication du jeton, ce qui rend ce test plus proche de la production qu'un tenant
+     * posé de force — et le `@Primary` qui contournait le repli conditionnel de KDN-15 n'a
+     * plus d'objet, ce repli n'étant plus un bean.
      */
     @TestConfiguration(proxyBeanMethods = false)
     class ObservabilityFixtures {
-        // `@Primary` plutot qu'un simple bean : le repli `AbsentTenantIdResolver` de KDN-15
-        // est enregistre avant la configuration de test, si bien que son
-        // `@ConditionalOnMissingBean` ne le desactive pas.
+        /** Tiendra jusqu'à ce que KDN-27 publie l'adaptateur adossé aux agrégats `identity`. */
         @Bean
-        @Primary
-        fun fixedTenantIdResolver(): TenantIdResolver = TenantIdResolver { TenantId(UUID.fromString(TENANT_ID)) }
+        fun credentialsFinder(passwordEncoder: PasswordEncoder): CredentialsFinder {
+            val account =
+                AccountCredentials(
+                    accountId = AccountId(UUID.fromString(ACCOUNT_ID)),
+                    tenantId = TenantId(UUID.fromString(TENANT_ID)),
+                    role = MembershipRole.OWNER,
+                    passwordHash = checkNotNull(passwordEncoder.encode(PASSWORD)),
+                )
+            return CredentialsFinder { login -> account.takeIf { login == LOGIN } }
+        }
 
         @Bean
         fun outingsController(): OutingsController = OutingsController()
@@ -156,9 +209,15 @@ class ObservabilityContractTest {
     private companion object {
         const val HTTP_OK = 200
         const val HTTP_NOT_FOUND = 404
+        const val ACCOUNT_ID = "5b6c7d8e-9f01-4234-8567-89abcdef0123"
+        const val LOGIN = "chauffeur@example.test"
+        const val PASSWORD = "correct horse battery staple"
         const val ACCESS_MESSAGE = "http access"
         const val TENANT_ID = "9a1f2b3c-4d5e-4f60-8172-a3b4c5d6e7f8"
         const val OUTING_ID = "0c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5"
+        const val AUTHORIZATION = "Authorization"
+
+        val TOKEN_PATTERN = Regex("\"accessToken\":\"([^\"]+)\"")
 
         val CLIENT: HttpClient = HttpClient.newHttpClient()
 

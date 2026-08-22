@@ -20,6 +20,13 @@ dependencies {
     // `spring-boot-starter-web` existe encore en 4.x mais y est deprecie : le nom ne disait
     // pas s'il s'agissait de MVC ou de WebFlux. `-webmvc` est son remplacant explicite.
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    // Jackson 3 — que Spring Boot 4 amene sous le paquet `tools.jackson` — ne sait pas
+    // instancier une `data class` sans son module Kotlin : une classe Kotlin n'a pas de
+    // constructeur sans argument, et le deserialiseur echoue avec « no Creators ». Le defaut
+    // ne se voit qu'a l'execution, sur un 500 traduit en 401 par la chaine de securite. Le
+    // module est donc declare des le premier corps de requete du projet (KDN-18) ; toute
+    // ressource REST des contextes bornes en dependra de la meme facon.
+    implementation("tools.jackson.module:jackson-module-kotlin")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     // Registre Prometheus en collecte *pull* (spec §10.7.2). L'auto-configuration vit dans
     // `spring-boot-micrometer-metrics`, que `starter-actuator` amene deja ; seul le registre
